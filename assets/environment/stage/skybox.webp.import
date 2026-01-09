@@ -1,0 +1,27 @@
+[remap]
+
+importer="cubemap_texture"
+type="CompressedCubemap"
+uid="uid://bnqdokul6s4pt"
+path="res://.godot/imported/skybox.webp-000750f51b4fc7d5851b329db592c6ec.ccube"
+metadata={
+"vram_texture": false
+}
+
+[deps]
+
+source_file="res://assets/environment/stage/skybox.webp"
+dest_files=["res://.godot/imported/skybox.webp-000750f51b4fc7d5851b329db592c6ec.ccube"]
+
+[params]
+
+compress/mode=0
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/uastc_level=0
+compress/rdo_quality_loss=0.0
+compress/hdr_compression=1
+compress/channel_pack=0
+mipmaps/generate=false
+mipmaps/limit=-1
+slices/arrangement=1
