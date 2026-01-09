@@ -48,6 +48,17 @@ xfade_time = 0.3
 [sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_run_idle"]
 xfade_time = 0.3
 
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_wave"]
+animation = &"wave"
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_wave"]
+xfade_time = 0.2
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_wave_idle"]
+switch_mode = 2
+auto_advance = true
+xfade_time = 0.5
+
 [sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_root"]
 states/End/position = Vector2(899, 100)
 states/Start/position = Vector2(191, 100)
@@ -59,7 +70,9 @@ states/run/node = SubResource("AnimationNodeAnimation_run")
 states/run/position = Vector2(568, -13)
 states/walk/node = SubResource("AnimationNodeAnimation_walk")
 states/walk/position = Vector2(568, 100)
-transitions = [SubResource("AnimationNodeStateMachineTransition_idle_walk"), SubResource("AnimationNodeStateMachineTransition_walk_idle"), SubResource("AnimationNodeStateMachineTransition_walk_run"), SubResource("AnimationNodeStateMachineTransition_run_walk"), SubResource("AnimationNodeStateMachineTransition_any_jump"), SubResource("AnimationNodeStateMachineTransition_jump_idle"), SubResource("AnimationNodeStateMachineTransition_start_idle"), SubResource("AnimationNodeStateMachineTransition_idle_run"), SubResource("AnimationNodeStateMachineTransition_run_idle")]
+states/wave/node = SubResource("AnimationNodeAnimation_wave")
+states/wave/position = Vector2(362, -13)
+transitions = [SubResource("AnimationNodeStateMachineTransition_idle_walk"), SubResource("AnimationNodeStateMachineTransition_walk_idle"), SubResource("AnimationNodeStateMachineTransition_walk_run"), SubResource("AnimationNodeStateMachineTransition_run_walk"), SubResource("AnimationNodeStateMachineTransition_any_jump"), SubResource("AnimationNodeStateMachineTransition_jump_idle"), SubResource("AnimationNodeStateMachineTransition_start_idle"), SubResource("AnimationNodeStateMachineTransition_idle_run"), SubResource("AnimationNodeStateMachineTransition_run_idle"), SubResource("AnimationNodeStateMachineTransition_idle_wave"), SubResource("AnimationNodeStateMachineTransition_wave_idle")]
 graph_offset = Vector2(0, -60)
 
 [node name="Pet" type="CharacterBody3D"]

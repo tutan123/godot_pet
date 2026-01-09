@@ -7,6 +7,7 @@
 **文档版本**：v2.0
 **最后更新**：2024
 **适用项目**：
+
 - **Godot 客户端**：godot-pet
 - **JS 服务端**：q_llm_pet
 - **技术栈**：Godot 4.x + Node.js + WebSocket
@@ -22,22 +23,26 @@
 ### 1.2 核心目标
 
 #### 🎯 3D 表现力
+
 - 利用 Godot 4.x 的 3D 渲染和动画系统，打造生动的萌宠形象
 - 支持高质量的 3D 模型渲染和动画混合
 - 实现物理引擎驱动的真实物理交互
 
 #### 🔄 跨平台控制
+
 - 同一套 JS 后端逻辑（LLM + 行为树）同时支持 Web 端和 Godot 端
 - 统一的行为树决策引擎，确保多端表现一致性
 - 共享的 LLM 对话和意图理解逻辑
 
 #### 🖱️ 双向交互
+
 - **文字指令**：支持自然语言输入控制萌宠行为
 - **鼠标拖拽**：实现直观的物理交互体验
 - **点击互动**：支持多种点击反馈和响应
 - **视角跟随**：智能的第三人称相机控制
 
 #### 📡 统一协议
+
 - 定义标准化的 WebSocket 消息格式
 - 确保 Web 端和 Godot 端的通信协议完全兼容
 - 支持扩展新的交互模式和数据类型
@@ -76,10 +81,10 @@ graph TB
 
 ### 2.1 职责划分原则
 
-| 组件 | 位置 | 职责 | 特点 |
-|------|------|------|------|
-| **JS 服务端** | Node.js | **决策层**：运行行为树，处理 LLM 意图解析，维护数值状态（能量、无聊度），规划动作序列 | 实际执行行为树计算，逻辑复杂但计算量大 |
-| **Godot 客户端** | Godot 4.x | **表现层**：渲染 3D 模型，执行动画混合，处理本地物理，响应用户输入 | 专注视觉表现和高频渲染，性能敏感 |
+| 组件                   | 位置      | 职责                                                                                        | 特点                                   |
+| ---------------------- | --------- | ------------------------------------------------------------------------------------------- | -------------------------------------- |
+| **JS 服务端**    | Node.js   | **决策层**：运行行为树，处理 LLM 意图解析，维护数值状态（能量、无聊度），规划动作序列 | 实际执行行为树计算，逻辑复杂但计算量大 |
+| **Godot 客户端** | Godot 4.x | **表现层**：渲染 3D 模型，执行动画混合，处理本地物理，响应用户输入                    | 专注视觉表现和高频渲染，性能敏感       |
 
 ### 2.2 关键设计原则
 
@@ -102,16 +107,17 @@ graph TB
 
 ### 3.2 客户端 → 服务端 (指令与状态上报)
 
-| 消息类型 (`type`) | 数据内容 (`data`) | 描述 | 频率 |
-|--------------------|-------------------|------|------|
-| `handshake` | `{"client_type": "godot", "version": "1.0"}` | 连接建立时的身份声明 | 连接时 |
-| `user_input` | `{"text": "跳个舞吧"}` | 用户输入的文字指令 | 按需 |
-| `interaction` | `{"action": "click", "position": [x,y,z]}` | 鼠标点击或拖拽事件 | 实时 |
-| `interaction` | `{"action": "drag_start", "start_pos": [x,y,z]}` | 拖拽开始 | 实时 |
-| `interaction` | `{"action": "drag_end", "end_pos": [x,y,z]}` | 拖拽结束 | 实时 |
-| `state_sync` | `{"position": [x,y,z], "orientation": [x,y,z]}` | 客户端坐标同步（低频） | 每秒 1-5 次 |
+| 消息类型 (`type`) | 数据内容 (`data`)                                | 描述                   | 频率        |
+| ------------------- | -------------------------------------------------- | ---------------------- | ----------- |
+| `handshake`       | `{"client_type": "godot", "version": "1.0"}`     | 连接建立时的身份声明   | 连接时      |
+| `user_input`      | `{"text": "跳个舞吧"}`                           | 用户输入的文字指令     | 按需        |
+| `interaction`     | `{"action": "click", "position": [x,y,z]}`       | 鼠标点击或拖拽事件     | 实时        |
+| `interaction`     | `{"action": "drag_start", "start_pos": [x,y,z]}` | 拖拽开始               | 实时        |
+| `interaction`     | `{"action": "drag_end", "end_pos": [x,y,z]}`     | 拖拽结束               | 实时        |
+| `state_sync`      | `{"position": [x,y,z], "orientation": [x,y,z]}`  | 客户端坐标同步（低频） | 每秒 1-5 次 |
 
 **消息格式示例：**
+
 ```json
 {
   "type": "user_input",
@@ -125,15 +131,16 @@ graph TB
 
 ### 3.3 服务端 → 客户端 (执行指令与状态推送)
 
-| 消息类型 (`type`) | 数据内容 (`data`) | 描述 | 频率 |
-|--------------------|-------------------|------|------|
-| `bt_output` | `{"action": "DANCE", "expression": "HAPPY", "duration": 4.0}` | 播放指定的身体动作和表情 | 按需 |
-| `move_to` | `{"target": [x,y,z], "speed": 2.0, "path": [...]}` | 引导萌宠移动到特定位置 | 按需 |
-| `chat` | `{"content": "好的，看我为你表演！", "emotion": "excited"}` | 萌宠的对白，显示在 UI 上 | 按需 |
-| `status_update` | `{"energy": 85, "boredom": 10, "mood": "happy"}` | 数值状态同步，更新 UI 条 | 每 2 秒 |
-| `error` | `{"code": 1001, "message": "Invalid action"}` | 错误信息反馈 | 异常时 |
+| 消息类型 (`type`) | 数据内容 (`data`)                                             | 描述                     | 频率    |
+| ------------------- | --------------------------------------------------------------- | ------------------------ | ------- |
+| `bt_output`       | `{"action": "DANCE", "expression": "HAPPY", "duration": 4.0}` | 播放指定的身体动作和表情 | 按需    |
+| `move_to`         | `{"target": [x,y,z], "speed": 2.0, "path": [...]}`            | 引导萌宠移动到特定位置   | 按需    |
+| `chat`            | `{"content": "好的，看我为你表演！", "emotion": "excited"}`   | 萌宠的对白，显示在 UI 上 | 按需    |
+| `status_update`   | `{"energy": 85, "boredom": 10, "mood": "happy"}`              | 数值状态同步，更新 UI 条 | 每 2 秒 |
+| `error`           | `{"code": 1001, "message": "Invalid action"}`                 | 错误信息反馈             | 异常时  |
 
 **消息格式示例：**
+
 ```json
 {
   "type": "bt_output",
@@ -160,6 +167,7 @@ graph TB
 ### 3.4 协议扩展性
 
 **版本控制：**
+
 ```json
 {
   "protocol_version": "2.0",
@@ -168,6 +176,7 @@ graph TB
 ```
 
 **自定义扩展：**
+
 ```json
 {
   "type": "custom_event",
@@ -188,6 +197,7 @@ graph TB
 基于 `godot-demo-projects/3d/platformer` 的设计模式：
 
 #### 🐧 Pet (CharacterBody3D) - 萌宠主体
+
 ```gdscript
 # 场景树结构
 Pet (CharacterBody3D)
@@ -199,12 +209,14 @@ Pet (CharacterBody3D)
 ```
 
 **核心特性：**
+
 - **MeshInstance3D**：萌宠 3D 模型，支持 LOD (Level of Detail)
 - **AnimationTree**：使用 StateMachine 或 BlendTree 实现动作平滑过渡
 - **CollisionShape3D**：用于检测鼠标点击、拖拽和物理碰撞
 - **CharacterBody3D**：集成 Godot 物理引擎，支持重力、碰撞等
 
 #### 📷 Main Camera (Camera3D) - 主相机
+
 ```gdscript
 # 相机系统结构
 CameraRig (Node3D)
@@ -214,12 +226,14 @@ CameraRig (Node3D)
 ```
 
 **核心特性：**
+
 - **SpringArm3D**：实现第三人称跟随视角，带弹性缓冲
 - **鼠标右键旋转**：支持 360° 水平旋转和垂直角度限制
 - **滚轮缩放**：支持距离缩放，有最小/最大距离限制
 - **平滑插值**：所有相机移动都使用 Tween 动画
 
 #### 🌍 Environment - 环境系统
+
 ```gdscript
 # 环境配置
 WorldEnvironment
@@ -235,6 +249,7 @@ WorldEnvironment
 ### 4.2 动画控制逻辑
 
 #### 动画系统架构
+
 ```gdscript
 class_name AnimationController
 extends Node
@@ -259,6 +274,7 @@ func on_bt_output_received(data: Dictionary) -> void:
 ```
 
 #### 动作序列处理
+
 ```gdscript
 func play_action_sequence(sequence: Array) -> void:
     for action_data in sequence:
@@ -271,6 +287,7 @@ func play_action_sequence(sequence: Array) -> void:
 ```
 
 #### 动画混合设置
+
 - **StateMachine**：用于离散动作切换 (IDLE → WALK → RUN)
 - **BlendTree**：用于连续动作混合 (行走速度渐变)
 - **Additive Layer**：用于表情叠加 (基础动作 + 表情动画)
@@ -278,6 +295,7 @@ func play_action_sequence(sequence: Array) -> void:
 ### 4.3 视角移动控制
 
 #### 第三人称相机实现
+
 ```gdscript
 class_name CameraController
 extends Node3D
@@ -306,6 +324,7 @@ func _input(event: InputEvent) -> void:
 ```
 
 #### 智能跟随逻辑
+
 ```gdscript
 func _physics_process(delta: float) -> void:
     # 平滑跟随萌宠位置
@@ -320,6 +339,7 @@ func _physics_process(delta: float) -> void:
 ```
 
 #### 文字控制视角
+
 ```gdscript
 func on_server_command(command: String) -> void:
     match command:
@@ -342,6 +362,7 @@ func on_server_command(command: String) -> void:
 ### 5.2 核心改动
 
 #### 📦 依赖添加
+
 ```json
 // package.json
 {
@@ -353,6 +374,7 @@ func on_server_command(command: String) -> void:
 ```
 
 #### 🏗️ 服务端架构
+
 ```typescript
 // BTServer.ts - 新增独立的服务端文件
 import WebSocket from 'ws';
@@ -404,6 +426,7 @@ class BTWebSocketServer {
 ```
 
 #### 🔄 黑板同步机制
+
 ```typescript
 // 为每个客户端维护独立的黑板实例
 private setupClientHandlers(client: ConnectedClient, trees: any) {
@@ -433,6 +456,7 @@ private setupClientHandlers(client: ConnectedClient, trees: any) {
 ```
 
 #### 🎯 行为树执行引擎
+
 ```typescript
 // 提取自 App.tsx 的 BT 控制器逻辑
 private startBTExecution(client: ConnectedClient, trees: any) {
@@ -468,6 +492,7 @@ private startBTExecution(client: ConnectedClient, trees: any) {
 ```
 
 #### 📡 消息路由
+
 ```typescript
 private sendBTOutputToClient(client: ConnectedClient) {
   const { ws, blackboard } = client;
@@ -523,35 +548,37 @@ private async handleUserInput(client: ConnectedClient, trees: any, data: any) {
 
 ## 6. 开发规划 (Todo List)
 
-### 6.1 第一阶段：基础架构搭建 (1-2 周)
+### 6.1 第一阶段：基础架构搭建 (1-2 周) ✅
 
 #### [Godot] 3D 场景搭建 ✅
-- [ ] 创建 Godot 4.x 项目，设置 3D 场景
-- [ ] 导入或创建萌宠 3D 模型 (GLTF/GLB 格式)
-- [ ] 配置 AnimationTree，支持基础动作 (IDLE, WALK, DANCE 等)
-- [ ] 实现 CharacterBody3D 物理系统
+- [x] 创建 Godot 4.x 项目，设置 3D 场景
+- [x] 导入或创建萌宠 3D 模型 (GLTF/GLB 格式)
+- [x] 配置 AnimationTree，支持基础动作 (IDLE, WALK, DANCE 等)
+- [x] 实现 CharacterBody3D 物理系统
 
 #### [Godot] WebSocket 客户端基础 ✅
-- [ ] 创建 WebSocketClient 脚本
-- [ ] 实现连接/断开逻辑
-- [ ] 添加 JSON 消息解析和发送
-- [ ] 实现心跳保活机制
+- [x] 创建 WebSocketClient 脚本
+- [x] 实现连接/断开逻辑
+- [x] 添加 JSON 消息解析和发送
+- [x] 实现心跳保活机制
 
 #### [Godot] 第三人称相机控制 ✅
-- [ ] 实现 SpringArm3D 跟随系统
-- [ ] 添加鼠标右键旋转控制
-- [ ] 实现滚轮缩放功能
-- [ ] 添加相机边界限制
+- [x] 实现 SpringArm3D 跟随系统
+- [x] 添加鼠标右键旋转控制
+- [x] 实现滚轮缩放功能
+- [x] 添加相机边界限制
 
-### 6.2 第二阶段：通信协议实现 (1 周)
+### 6.2 第二阶段：通信协议实现 (1 周) [进行中]
 
 #### [JS] 服务端改造
+
 - [ ] 在 q_llm_pet 中添加 `ws` 依赖
 - [ ] 创建 BTServer.ts，提取 BT 执行逻辑
 - [ ] 实现多客户端连接管理
 - [ ] 添加消息路由和错误处理
 
 #### [Protocol] 通信协议标准化
+
 - [ ] 定义完整的 JSON 消息格式
 - [ ] 实现握手和状态同步
 - [ ] 添加协议版本控制
@@ -560,12 +587,14 @@ private async handleUserInput(client: ConnectedClient, trees: any, data: any) {
 ### 6.3 第三阶段：功能集成 (2 周)
 
 #### [Sync] 联调测试
+
 - [ ] 实现"文字指令 → LLM → BT → WS → Godot 动画播放"闭环
 - [ ] 测试鼠标拖拽交互
 - [ ] 验证状态同步 (能量、无聊度)
 - [ ] 优化网络延迟和性能
 
 #### [UI] 用户界面
+
 - [ ] 在 Godot 中添加聊天界面
 - [ ] 实现状态条显示 (能量、无聊度)
 - [ ] 添加连接状态指示器
@@ -574,12 +603,14 @@ private async handleUserInput(client: ConnectedClient, trees: any, data: any) {
 ### 6.4 第四阶段：优化和扩展 (1-2 周)
 
 #### [Performance] 性能优化
+
 - [ ] 实现动画预加载和缓存
 - [ ] 优化物理计算频率
 - [ ] 添加网络异常处理和重连
 - [ ] 实现资源 LOD 系统
 
 #### [Features] 高级功能
+
 - [ ] 支持动作序列播放
 - [ ] 添加环境交互 (草地变形、水面反射)
 - [ ] 实现粒子特效系统
@@ -591,13 +622,13 @@ private async handleUserInput(client: ConnectedClient, trees: any, data: any) {
 
 ### 7.1 潜在风险
 
-| 风险等级 | 风险描述 | 影响程度 | 应对方案 |
-|----------|----------|----------|----------|
-| 中 | WebSocket 连接稳定性 | 高 | 实现自动重连和心跳机制 |
-| 低 | Godot 4.x 学习曲线 | 中 | 利用现有 demo 项目快速上手 |
-| 中 | 跨端状态同步一致性 | 高 | 严格的服务端权威原则 |
-| 低 | 3D 模型资源获取 | 中 | 先用程序生成的几何体测试 |
-| 中 | 性能优化挑战 | 高 | 分阶段开发，逐步优化 |
+| 风险等级 | 风险描述             | 影响程度 | 应对方案                   |
+| -------- | -------------------- | -------- | -------------------------- |
+| 中       | WebSocket 连接稳定性 | 高       | 实现自动重连和心跳机制     |
+| 低       | Godot 4.x 学习曲线   | 中       | 利用现有 demo 项目快速上手 |
+| 中       | 跨端状态同步一致性   | 高       | 严格的服务端权威原则       |
+| 低       | 3D 模型资源获取      | 中       | 先用程序生成的几何体测试   |
+| 中       | 性能优化挑战         | 高       | 分阶段开发，逐步优化       |
 
 ### 7.2 成功标准
 
@@ -616,12 +647,14 @@ private async handleUserInput(client: ConnectedClient, trees: any, data: any) {
 如果你未来需要 **超低延迟** 的物理交互或 **远程语音流**，可以考虑在后期将 WebSocket 升级为 WebRTC 方案。
 
 #### 🎯 适用场景
+
 1. **高频物理同步**：实时拽着萌宠甩来甩去，要求 Web 端和 Godot 端动作完全同步
 2. **语音交互**：通过麦克风实时对话，萌宠实时语音回复
 3. **多人协作**：多个客户端同时操控同一只萌宠
 4. **视频流传输**：萌宠"看到"用户（摄像头输入）
 
 #### 🚀 技术特点
+
 - **延迟极低**：通常 < 50ms，比 WebSocket 快 2-4 倍
 - **P2P 直连**：减少服务器带宽压力
 - **原生音视频**：内置 WebRTC 的 SRTP 协议和音频处理
@@ -631,12 +664,14 @@ private async handleUserInput(client: ConnectedClient, trees: any, data: any) {
 **当前阶段建议：坚持使用 WebSocket**
 
 理由：
+
 - ✅ **实现成本低**：Node.js + Godot 的 WebSocket 支持都非常成熟
 - ✅ **开发效率高**：不需要额外的信令服务器和 STUN/TURN 服务器
 - ✅ **调试简单**：可以直接用浏览器开发者工具查看消息
 - ✅ **足够满足需求**：对于 LLM + 行为树的场景，WebSocket 性能完全够用
 
 **何时升级到 WebRTC：**
+
 - 发现 WebSocket 在弱网环境下有明显延迟问题
 - 需要添加实时语音交互功能
 - 需要支持多人实时协作
@@ -658,6 +693,7 @@ private async handleUserInput(client: ConnectedClient, trees: any, data: any) {
 ### 9.1 项目价值
 
 本设计方案实现了：
+
 - **技术创新**：将先进的 AI 技术 (LLM + 行为树) 与 3D 游戏引擎结合
 - **用户体验**：提供沉浸式的 3D 萌宠交互体验
 - **架构优雅**：清晰的职责分离和模块化设计
@@ -696,14 +732,14 @@ private async handleUserInput(client: ConnectedClient, trees: any, data: any) {
 
 ### 10.3 版本历史
 
-| 版本 | 日期 | 主要变更 |
-|------|------|----------|
-| v1.0 | 2024-01 | 初始设计方案 |
+| 版本 | 日期    | 主要变更                                 |
+| ---- | ------- | ---------------------------------------- |
+| v1.0 | 2024-01 | 初始设计方案                             |
 | v2.0 | 2024-01 | 完善通信协议，添加实现细节，扩展功能规划 |
 
 ---
 
-**文档版本**：v2.0  
-**最后更新**：2024  
-**维护者**：开发团队  
+**文档版本**：v2.0
+**最后更新**：2024
+**维护者**：开发团队
 **状态**：设计阶段，待实施

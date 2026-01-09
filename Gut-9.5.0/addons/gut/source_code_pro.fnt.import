@@ -1,0 +1,17 @@
+[remap]
+
+importer="font_data_bmfont"
+type="FontFile"
+uid="uid://cfawt18qr4256"
+path="res://.godot/imported/source_code_pro.fnt-ce64a4e4cc9d63f092a03045584d0af7.fontdata"
+
+[deps]
+
+source_file="res://Gut-9.5.0/addons/gut/source_code_pro.fnt"
+dest_files=["res://.godot/imported/source_code_pro.fnt-ce64a4e4cc9d63f092a03045584d0af7.fontdata"]
+
+[params]
+
+fallbacks=[]
+compress=true
+scaling_mode=2
