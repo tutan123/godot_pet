@@ -1,28 +1,33 @@
-[gd_scene load_steps=10 format=3 uid="uid://main_scene_id"]
+[gd_scene load_steps=12 format=3 uid="uid://main_scene_id"]
 
 [ext_resource type="PackedScene" uid="uid://pet_root_id" path="res://scenes/pet.tscn" id="1_pet"]
 [ext_resource type="Script" path="res://scripts/websocket_client.gd" id="2_ws"]
 [ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3_cam"]
 [ext_resource type="Script" path="res://scripts/ui_controller.gd" id="4_ui"]
+[ext_resource type="Shader" path="res://assets/environment/stage/skybox.gdshader" id="5_sky"]
+[ext_resource type="CompressedCubemap" uid="uid://bnqdokul6s4pt" path="res://assets/environment/stage/skybox.webp" id="6_tex"]
 
-[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
-sky_horizon_color = Color(0.64625, 0.65575, 0.67075, 1)
-ground_horizon_color = Color(0.64625, 0.65575, 0.67075, 1)
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_1"]
+shader = ExtResource("5_sky")
+shader_parameter/source_panorama = ExtResource("6_tex")
+shader_parameter/exposure = 1.0
 
 [sub_resource type="Sky" id="Sky_1"]
-sky_material = SubResource("ProceduralSkyMaterial_1")
+sky_material = SubResource("ShaderMaterial_1")
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 2
 sky = SubResource("Sky_1")
 tonemap_mode = 2
 glow_enabled = true
+fog_enabled = true
+fog_light_color = Color(0.1, 0.12, 0.18, 1)
+fog_density = 0.02
 
-[sub_resource type="PlaneMesh" id="PlaneMesh_1"]
-size = Vector2(40, 40)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
-albedo_color = Color(0.2, 0.3, 0.2, 1)
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
+albedo_color = Color(0.12, 0.15, 0.2, 1)
+roughness = 0.7
+metallic = 0.1
 
 [sub_resource type="WorldBoundaryShape3D" id="WorldBoundaryShape3D_1"]
 
@@ -32,17 +37,41 @@ albedo_color = Color(0.2, 0.3, 0.2, 1)
 environment = SubResource("Environment_1")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(-0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, 0.75, -0.433013, 0, 0, 0)
+transform = Transform3D(-0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, 0.75, -0.433013, 0, 10, 0)
+light_energy = 1.2
 shadow_enabled = true
+shadow_bias = 0.04
 
 [node name="Floor" type="StaticBody3D" parent="."]
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
-mesh = SubResource("PlaneMesh_1")
-surface_material_override/0 = SubResource("StandardMaterial3D_1")
+[node name="MeshInstance3D" type="CSGPlane3D" parent="Floor"]
+size = Vector2(100, 100)
+material = SubResource("StandardMaterial3D_floor")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
 shape = SubResource("WorldBoundaryShape3D_1")
+
+[node name="StageDecor" type="Node3D" parent="."]
+
+[node name="Platform1" type="CSGBox3D" parent="StageDecor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, -8)
+use_collision = true
+size = Vector3(10, 0.5, 4)
+material = SubResource("StandardMaterial3D_floor")
+
+[node name="Column1" type="CSGCylinder3D" parent="StageDecor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 2, -10)
+use_collision = true
+radius = 1.0
+height = 4.0
+material = SubResource("StandardMaterial3D_floor")
+
+[node name="Column2" type="CSGCylinder3D" parent="StageDecor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, -10)
+use_collision = true
+radius = 1.0
+height = 4.0
+material = SubResource("StandardMaterial3D_floor")
 
 [node name="Pet" parent="." instance=ExtResource("1_pet")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
@@ -57,7 +86,7 @@ target_path = NodePath("../Pet")
 
 [node name="SpringArm3D" type="SpringArm3D" parent="CameraRig"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
-spring_length = 4.0
+spring_length = 5.0
 
 [node name="Camera3D" type="Camera3D" parent="CameraRig/SpringArm3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)

@@ -1,5 +1,5 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1767976815
+::res://::1767977591
 architecture.md::TextFile::-1::1767888360::0::1::::<><><>0<>0<><>::
 Godot 3D 萌宠系统设计方案 (V2.0).md::TextFile::-1::1767976249::0::1::::<><><>0<>0<><>::
 godot-pet-design.md::TextFile::-1::1767887710::0::1::::<><><>0<>0<><>::
@@ -7,7 +7,7 @@ godot-pet-design.md::TextFile::-1::1767887710::0::1::::<><><>0<>0<><>::
 网络通信技术选型文档.md::TextFile::-1::1767975916::0::1::::<><><>0<>0<><>::
 ::res://assets/::1767976926
 ::res://assets/environment/::1767976926
-::res://assets/environment/stage/::1767976926
+::res://assets/environment/stage/::1767976927
 grid_map.scn::PackedScene::8025550686462853759::1767886680::0::1::::<><><>0<>0<><>::res://stage/tiles.tres
 skybox.gdshader::Shader::3609291578200975069::1767886680::0::1::::<><><>0<>0<><>::
 skybox.webp::CompressedCubemap::3332113403816993765::1767886680::1767976927::1::::<><><>0<>0<>0b4cefb7a9178c443c310c5cc785d1cb<>res://.godot/imported/skybox.webp-000750f51b4fc7d5851b329db592c6ec.ccube::
@@ -46,7 +46,7 @@ trunk_floor.res::ArrayMesh::7672530833030394861::1767886680::0::1::::<><><>0<>0<
 wall.res::ArrayMesh::2707600549958450804::1767886680::0::1::::<><><>0<>0<><>::uid://dqqlrr5i2rr4t::::res://stage/tile_material.tres
 wall_floor.res::ArrayMesh::23577930618688683::1767886680::0::1::::<><><>0<>0<><>::uid://dqqlrr5i2rr4t::::res://stage/tile_material.tres
 wall_var.res::ArrayMesh::4364686352272947050::1767886680::0::1::::<><><>0<>0<><>::uid://dqqlrr5i2rr4t::::res://stage/tile_material.tres
-::res://assets/environment/stage/meshes/previews/::1767976926
+::res://assets/environment/stage/meshes/previews/::1767976927
 ceiling.webp::CompressedTexture2D::171904285160748370::1767886680::1767976927::1::::<><><>0<>0<>80c9216b48d4e1eabe897db2f2c2e43a<>res://.godot/imported/ceiling.webp-8d267ab0d7e5e5865a3e18a1da1dfc97.ctex::
 ceiling_corner.webp::CompressedTexture2D::7786263911336101756::1767886680::1767976927::1::::<><><>0<>0<>aa84cb33d8c0715afdf2d6b356b0dbb9<>res://.godot/imported/ceiling_corner.webp-0a05410f2f3b6f245b971d04b7e79295.ctex::
 ceiling_wall.webp::CompressedTexture2D::7078192039659778356::1767886680::1767976927::1::::<><><>0<>0<>f2cf48519c002823af3ccc1a9f04729c<>res://.godot/imported/ceiling_wall.webp-c3c4f5d8128ead3ae62d4b6077332948.ctex::
@@ -90,10 +90,10 @@ osb_up.webp::CompressedTexture2D::3397942667877707301::1767886680::1767976816::1
 ::res://image/ARCHITECTURE/::1767976638
 1767888448715.png::CompressedTexture2D::4880502265842991929::1767888449::1767976638::1::::<><><>0<>0<>0529cd8d130b274b861fe311b9c0c847<>res://.godot/imported/1767888448715.png-abd4a986aefea534e2b99096a50eb4b3.ctex::
 ::res://scenes/::1767976539
-main.tscn::PackedScene::-1::1767976794::0::1::::<><><>0<>0<><>::res://scenes/pet.tscn<>res://scripts/websocket_client.gd<>res://scripts/camera_controller.gd<>res://scripts/ui_controller.gd
-pet.tscn::PackedScene::-1::1767976794::0::1::::<><><>0<>0<><>::res://scripts/pet_controller.gd<>uid://c3cve8nqyv2v4::::res://assets/models/player/player.glb
+main.tscn::PackedScene::-1::1767977425::0::1::::<><><>0<>0<><>::res://scenes/pet.tscn<>res://scripts/websocket_client.gd<>res://scripts/camera_controller.gd<>res://scripts/ui_controller.gd<>res://assets/environment/stage/skybox.gdshader<>uid://bnqdokul6s4pt::::res://assets/environment/stage/skybox.webp
+pet.tscn::PackedScene::-1::1767977477::0::1::::<><><>0<>0<><>::res://scripts/pet_controller.gd<>uid://c3cve8nqyv2v4::::res://assets/models/player/player.glb
 ::res://scripts/::1767976638
 camera_controller.gd::GDScript::8378202803930883762::1767976575::0::1::::<>Node3D<><>0<>0<><>::
-pet_controller.gd::GDScript::8931945136584820964::1767976794::0::1::::<>CharacterBody3D<><>0<>0<><>::
+pet_controller.gd::GDScript::8931945136584820964::1767977425::0::1::::<>CharacterBody3D<><>0<>0<><>::
 ui_controller.gd::GDScript::4578172536247957637::1767976575::0::1::::<>Control<><>0<>0<><>::
 websocket_client.gd::GDScript::2054547864558290124::1767976575::0::1::::<>Node<><>0<>0<><>::

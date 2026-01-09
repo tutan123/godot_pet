@@ -1,4 +1,4 @@
-[gd_scene load_steps=5 format=3 uid="uid://pet_root_id"]
+[gd_scene load_steps=18 format=3 uid="uid://pet_root_id"]
 
 [ext_resource type="Script" path="res://scripts/pet_controller.gd" id="1_script"]
 [ext_resource type="PackedScene" uid="uid://c3cve8nqyv2v4" path="res://assets/models/player/player.glb" id="2_model"]
@@ -7,7 +7,60 @@
 radius = 0.4
 height = 1.2
 
-[sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_1"]
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_idle"]
+animation = &"idle"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_jump"]
+animation = &"jump"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_run"]
+animation = &"run"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_walk"]
+animation = &"walk"
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_walk"]
+xfade_time = 0.3
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_walk_idle"]
+xfade_time = 0.3
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_walk_run"]
+xfade_time = 0.3
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_run_walk"]
+xfade_time = 0.3
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_any_jump"]
+xfade_time = 0.1
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_jump_idle"]
+switch_mode = 2
+auto_advance = true
+xfade_time = 0.5
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_start_idle"]
+advance_mode = 2
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_run"]
+xfade_time = 0.3
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_run_idle"]
+xfade_time = 0.3
+
+[sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_root"]
+states/End/position = Vector2(899, 100)
+states/Start/position = Vector2(191, 100)
+states/idle/node = SubResource("AnimationNodeAnimation_idle")
+states/idle/position = Vector2(362, 100)
+states/jump/node = SubResource("AnimationNodeAnimation_jump")
+states/jump/position = Vector2(468, -13)
+states/run/node = SubResource("AnimationNodeAnimation_run")
+states/run/position = Vector2(568, -13)
+states/walk/node = SubResource("AnimationNodeAnimation_walk")
+states/walk/position = Vector2(568, 100)
+transitions = [SubResource("AnimationNodeStateMachineTransition_idle_walk"), SubResource("AnimationNodeStateMachineTransition_walk_idle"), SubResource("AnimationNodeStateMachineTransition_walk_run"), SubResource("AnimationNodeStateMachineTransition_run_walk"), SubResource("AnimationNodeStateMachineTransition_any_jump"), SubResource("AnimationNodeStateMachineTransition_jump_idle"), SubResource("AnimationNodeStateMachineTransition_start_idle"), SubResource("AnimationNodeStateMachineTransition_idle_run"), SubResource("AnimationNodeStateMachineTransition_run_idle")]
+graph_offset = Vector2(0, -60)
 
 [node name="Pet" type="CharacterBody3D"]
 script = ExtResource("1_script")
@@ -20,6 +73,7 @@ shape = SubResource("CapsuleShape3D_1")
 transform = Transform3D(0.3, 0, 0, 0, 0.3, 0, 0, 0, 0.3, 0, 0, 0)
 
 [node name="AnimationTree" type="AnimationTree" parent="."]
-tree_root = SubResource("AnimationNodeStateMachine_1")
+root_node = NodePath("../Player")
+tree_root = SubResource("AnimationNodeStateMachine_root")
 anim_player = NodePath("../Player/AnimationPlayer")
 active = true
