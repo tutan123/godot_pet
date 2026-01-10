@@ -18,6 +18,11 @@ func _ready() -> void:
 	connect_to_server()
 
 func connect_to_server() -> void:
+	# 如果已有连接，先关闭
+	if socket.get_ready_state() == WebSocketPeer.STATE_OPEN or socket.get_ready_state() == WebSocketPeer.STATE_CONNECTING:
+		socket.close()
+		is_connected = false
+	
 	print("Connecting to WebSocket server: ", websocket_url)
 	var err = socket.connect_to_url(websocket_url)
 	if err != OK:
@@ -57,8 +62,6 @@ func _process(delta: float) -> void:
 			is_connected = false
 			print("Disconnected from server.")
 			disconnected.emit()
-			# 尝试重连（可选）
-			# get_tree().create_timer(5.0).timeout.connect(connect_to_server)
 
 func send_message(type: String, data: Dictionary) -> void:
 	if socket.get_ready_state() != WebSocketPeer.STATE_OPEN:

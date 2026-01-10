@@ -31,12 +31,13 @@ var drag_threshold: float = 10.0 # 像素阈值，超过这个距离才算拖拽
 var click_start_time: float = 0.0
 var max_click_duration: float = 0.25 # 超过这个时间就不算点击
 
-# 程序化动作变量
+	# 程序化动作变量
 var proc_time: float = 0.0
 var shake_intensity: float = 0.0
 var tilt_angle: float = 0.0
 var proc_anim_active: String = "" # 当前正在执行的程序化动画名
 var proc_rot_y: float = 0.0 # 专门用于 spin 的旋转累计值
+var proc_rot_x: float = 0.0 # 专门用于 flip 的旋转累计值
 
 # 状态声明式动作管理（参考网络游戏的状态同步模式）
 var current_action_state: Dictionary = {} # {name, priority, duration, start_time, interruptible}
@@ -46,6 +47,7 @@ var action_lock_time: float = 0.0 # 动作锁定到期时间
 # 用于定时上报位置
 var sync_timer: float = 0.0
 var sync_interval: float = 1.0 # 每1秒同步一次位置到服务端
+var last_jump_pressed: bool = false # 用于检测跳跃状态变化
 
 # 用于服务端高频同步的插值缓冲
 var server_target_pos: Vector3
@@ -117,8 +119,12 @@ func _physics_process(delta: float) -> void:
 		if elapsed >= duration:
 			# 动作完成，清除状态（但不清除动画，让它自然过渡）
 			var action_name = current_action_state.get("name", "idle")
-			# 程序化动画需要手动清除
-			if action_name in ["fly", "spin", "bounce", "roll"]:
+			# 程序化动画需要手动清除，并重置旋转累计值
+			if action_name in ["fly", "spin", "bounce", "roll", "flip", "wave", "shake"]:
+				if action_name == "spin":
+					proc_rot_y = 0.0
+				if action_name == "flip":
+					proc_rot_x = 0.0
 				proc_anim_active = ""
 			current_action_state = {}
 			action_lock_time = 0.0
@@ -215,9 +221,21 @@ func _physics_process(delta: float) -> void:
 			rotation.y = lerp_angle(rotation.y, target_rotation, rotation_speed * 0.5 * delta)
 
 	# 5. 跳跃
-	if is_on_floor() and Input.is_action_just_pressed("jump"):
+	var jump_pressed = Input.is_action_pressed("jump") and not is_typing
+	var jump_just_pressed = Input.is_action_just_pressed("jump") and not is_typing
+	
+	if is_on_floor() and jump_just_pressed:
 		velocity.y = jump_velocity
 		_switch_anim("jump")
+		# 立即发送跳跃事件给服务端（不需要等待定时同步）
+		if ws_client and ws_client.is_connected:
+			ws_client.send_message("interaction", {
+				"action": "jump",
+				"position": [global_position.x, global_position.y, global_position.z],
+				"velocity_y": velocity.y
+			})
+	
+	last_jump_pressed = jump_pressed
 
 	move_and_slide()
 	
@@ -304,8 +322,38 @@ func _apply_procedural_fx(delta: float) -> void:
 			mesh_root.position.x = sin(proc_time * 25.0) * 0.1
 			target_rot_z = sin(proc_time * 20.0) * 0.1
 		"flip":
-			target_rot_x += delta * 15.0 # 持续翻转
-			target_pos_y = abs(sin(proc_time * 10.0)) * 0.8
+			# 后空翻：基于动作状态的完整翻转，而不是持续弹跳
+			# 使用 current_action_state 的开始时间来计算已用时间
+			var action_start_time = current_action_state.get("start_time", 0.0)
+			if action_start_time > 0.0:
+				# 计算动作已用时间（秒）
+				var flip_elapsed = Time.get_unix_time_from_system() - action_start_time
+				var flip_duration = current_action_state.get("duration", 2000) / 1000.0 # 转换为秒
+				
+				# 归一化时间 0-1，限制在动作持续时间内
+				var t = clamp(flip_elapsed / flip_duration, 0.0, 1.0)
+				
+				# 翻转：在动作时间内完成一个完整的后空翻（360度）
+				# 使用线性旋转，2秒内完成一圈
+				var flip_speed = TAU / flip_duration # 根据 duration 调整速度
+				proc_rot_x = flip_elapsed * flip_speed
+				target_rot_x = proc_rot_x
+				
+				# 弹跳轨迹：抛物线，在中间（t=0.5）达到最高点，然后落下
+				# 使用抛物线公式：h = 4 * t * (1 - t)，在 t=0.5 时达到最高点 1.0
+				var jump_height = 0.6 * (4.0 * t * (1.0 - t)) # 最高 0.6 单位（降低高度）
+				target_pos_y = jump_height
+				
+				# 轻微的 Z 轴摆动（只在空中时，增加动感）
+				if t > 0.15 and t < 0.85:
+					target_rot_z = sin(flip_elapsed * 10.0) * 0.08
+				else:
+					target_rot_z = 0.0
+			else:
+				# 如果还没有 start_time，初始化
+				proc_rot_x = 0.0
+				target_pos_y = 0.0
+				target_rot_x = 0.0
 	
 	# C. 拖拽时的特殊覆盖
 	if is_dragging:
@@ -313,13 +361,19 @@ func _apply_procedural_fx(delta: float) -> void:
 	
 	# D. 最终平滑应用到模型 (除了自增量)
 	mesh_root.position.y = lerp(mesh_root.position.y, target_pos_y, 10.0 * delta)
-	mesh_root.rotation.x = lerp(mesh_root.rotation.x, target_rot_x, 10.0 * delta)
 	
-	# 只有在非特殊旋转动作时才重置 Z 轴和 Y 轴（平滑回归 0）
-	if proc_anim_active != "wave" and proc_anim_active != "roll" and not is_dragging:
+	# X 轴旋转：flip 使用累加旋转，其他动作平滑应用或回归
+	if proc_anim_active == "flip":
+		mesh_root.rotation.x = proc_rot_x # 直接应用累加的旋转角度
+	else:
+		mesh_root.rotation.x = lerp(mesh_root.rotation.x, target_rot_x, 10.0 * delta)
+		proc_rot_x = lerp_angle(proc_rot_x, 0, 5.0 * delta) # 平滑回归 0
+	
+	# 只有在非特殊旋转动作时才重置 Z 轴（平滑回归 0）
+	if proc_anim_active != "wave" and proc_anim_active != "roll" and proc_anim_active != "flip" and not is_dragging:
 		mesh_root.rotation.z = lerp(mesh_root.rotation.z, target_rot_z, 10.0 * delta)
 	
-	# 核心修复：如果是 spin，直接应用累加的旋转；否则，平滑回归 0
+	# Y 轴旋转：spin 使用累加旋转，其他动作平滑回归 0
 	if proc_anim_active == "spin":
 		mesh_root.rotation.y = proc_rot_y
 	else:
@@ -340,19 +394,30 @@ func _apply_procedural_fx(delta: float) -> void:
 func _switch_anim(anim_name: String) -> void:
 	# 动作名称映射：将 LLM 可能发送的别名映射到内部程序化名称
 	var normalized_name = anim_name.to_lower()
-	if normalized_name == "backflip": normalized_name = "flip"
-	if normalized_name == "shiver": normalized_name = "shake"
+	# 支持多种可能的输入形式
+	if normalized_name == "backflip" or normalized_name == "flip":
+		normalized_name = "flip"
+	if normalized_name == "shiver" or normalized_name == "shake":
+		normalized_name = "shake"
 	
 	# 检查是否是程序化动画
 	var proc_anims = ["wave", "spin", "bounce", "fly", "roll", "shake", "flip"]
 	if normalized_name in proc_anims:
 		proc_anim_active = normalized_name
+		# 重置 flip 旋转角度（动作切换时）
+		if normalized_name == "flip":
+			proc_rot_x = 0.0
 		# 即使是程序化动画，也尝试播放 idle 以确保基础姿态
 		if playback: playback.travel("idle")
 		last_anim_state = normalized_name
+		print("[Pet] Switched to procedural animation: %s" % normalized_name)
 		return
 	
-	# 切换回常规动画时，关闭程序化动画
+	# 切换回常规动画时，关闭程序化动画并重置旋转累计值
+	if proc_anim_active == "spin":
+		proc_rot_y = 0.0
+	if proc_anim_active == "flip":
+		proc_rot_x = 0.0
 	proc_anim_active = ""
 	
 	if last_anim_state == normalized_name and normalized_name != "jump":
@@ -378,8 +443,11 @@ func _send_interaction(action: String, extra_data: Variant) -> void:
 func _send_state_sync() -> void:
 	if ws_client and ws_client.is_connected:
 		# 获取当前键盘输入状态，用于点亮行为树
+		var focus_owner = get_viewport().gui_get_focus_owner()
+		var is_typing = focus_owner is LineEdit
 		var input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-		var is_moving_locally = input_dir.length() > 0.1 and not (get_viewport().gui_get_focus_owner() is LineEdit)
+		var is_moving_locally = input_dir.length() > 0.1 and not is_typing
+		var is_jump_pressed = Input.is_action_pressed("jump") and not is_typing
 		
 		ws_client.send_message("state_sync", {
 			"position": [global_position.x, global_position.y, global_position.z],
@@ -387,6 +455,7 @@ func _send_state_sync() -> void:
 			"is_dragging": is_dragging,
 			"is_on_floor": is_on_floor(),
 			"is_moving_locally": is_moving_locally,
+			"is_jump_pressed": is_jump_pressed,
 			"velocity": [velocity.x, velocity.y, velocity.z]
 		})
 
