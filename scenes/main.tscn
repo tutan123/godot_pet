@@ -60,17 +60,17 @@ size = Vector3(10, 0.5, 4)
 material = SubResource("StandardMaterial3D_floor")
 
 [node name="Column1" type="CSGCylinder3D" parent="StageDecor"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 2, -10)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0.4, -10)
 use_collision = true
-radius = 1.0
-height = 4.0
+radius = 1.2
+height = 0.8
 material = SubResource("StandardMaterial3D_floor")
 
 [node name="Column2" type="CSGCylinder3D" parent="StageDecor"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, -10)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.4, -10)
 use_collision = true
-radius = 1.0
-height = 4.0
+radius = 1.2
+height = 0.8
 material = SubResource("StandardMaterial3D_floor")
 
 [node name="Pet" parent="." instance=ExtResource("1_pet")]

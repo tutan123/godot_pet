@@ -37,8 +37,16 @@ func _send_input() -> void:
 func _on_ws_message(type: String, data: Dictionary) -> void:
 	if type == "chat":
 		var content = data.get("content", "")
+		var role = data.get("role", "model")
+		var is_tool_call = data.get("isToolCall", false)
+		
 		if content != "":
-			_log("[color=green]Pet: [/color]" + content)
+			if role == "system":
+				_log("[color=gray]<i>" + content + "</i>[/color]")
+			elif is_tool_call:
+				_log("[color=yellow][Action] " + content + "[/color]")
+			else:
+				_log("[color=green]Pet: [/color]" + content)
 	elif type == "status_update":
 		# 可以更新 UI 上的状态条，这里先忽略
 		pass

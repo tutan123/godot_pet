@@ -1,10 +1,5 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1767979165
-architecture.md::TextFile::-1::1767888360::0::1::::<><><>0<>0<><>::
-Godot 3D 萌宠系统设计方案 (V2.0).md::TextFile::-1::1767978503::0::1::::<><><>0<>0<><>::
-godot-pet-design.md::TextFile::-1::1767887710::0::1::::<><><>0<>0<><>::
-服务端客户端职责划分架构文档.md::TextFile::-1::1767978071::0::1::::<><><>0<>0<><>::
-网络通信技术选型文档.md::TextFile::-1::1767975916::0::1::::<><><>0<>0<><>::
+::res://::1768011287
 ::res://assets/::1767976926
 ::res://assets/environment/::1767976926
 ::res://assets/environment/stage/::1767976927
@@ -86,6 +81,20 @@ osb_left.webp::CompressedTexture2D::2286077971696075950::1767886680::1767976816:
 osb_right.webp::CompressedTexture2D::234436762922135034::1767886680::1767976816::1::::<><><>0<>0<>21d291eeffd8cc1a5747a337764e7909<>res://.godot/imported/osb_right.webp-dbb20846bec5e683b73c99fd4bf83a5e.ctex::
 osb_up.webp::CompressedTexture2D::3397942667877707301::1767886680::1767976816::1::::<><><>0<>0<>8c9fb3ab332c5587720d02faee5e4614<>res://.godot/imported/osb_up.webp-79095465cfeacf54a941a5564c131443.ctex::
 ::res://assets/textures/::1767976513
+::res://docs/::1768011264
+architecture.md::TextFile::-1::1767888360::0::1::::<><><>0<>0<><>::
+Godot 3D 萌宠系统设计方案 (V2.0).md::TextFile::-1::1768011333::0::1::::<><><>0<>0<><>::
+godot-pet-design.md::TextFile::-1::1767887710::0::1::::<><><>0<>0<><>::
+动作逻辑职责划分(本地状态机vs服务端行为树).md::TextFile::-1::1768009300::0::1::::<><><>0<>0<><>::
+服务端客户端职责划分架构文档.md::TextFile::-1::1767978071::0::1::::<><><>0<>0<><>::
+物理与环境同步方案.md::TextFile::-1::1768009300::0::1::::<><><>0<>0<><>::
+网络通信技术选型文档.md::TextFile::-1::1767975916::0::1::::<><><>0<>0<><>::
+行为树和状态机选择.md::TextFile::-1::1768012433::0::1::::<><><>0<>0<><>::
+黑板系统数据规范.md::TextFile::-1::1768011069::0::1::::<><><>0<>0<><>::
+::res://docs/image/::1768009727
+::res://docs/image/行为树和状态机选择/::1768012043
+1768010035207.png::CompressedTexture2D::2975858279117855967::1768010035::1768011287::1::::<><><>0<>0<>44f4b60dfef6aa90e9654cd72cd37824<>res://.godot/imported/1768010035207.png-1d951c020b45eee8c1c1a5a3d1ba90db.ctex::
+1768012043690.png::CompressedTexture2D::1089255673584575813::1768012044::1768013437::1::::<><><>0<>0<>8dd6ba29be6c217c8640d9a6df6991e0<>res://.godot/imported/1768012043690.png-34453f13f935bdbdc0fb6dba05f9188f.ctex::
 ::res://Gut-9.5.0/::1767979165
 ::res://Gut-9.5.0/addons/::1767979165
 ::res://Gut-9.5.0/addons/gut/::1767979167
@@ -158,7 +167,7 @@ optparse.gd::GDScript::7115616212494707654::1767979165::0::1::::<>RefCounted<><>
 function_template.txt::TextFile::-1::1767979165::0::1::::<><><>0<>0<><>::
 init_template.txt::TextFile::-1::1767979165::0::1::::<><><>0<>0<><>::
 script_template.txt::TextFile::-1::1767979165::0::1::::<><><>0<>0<><>::
-::res://Gut-9.5.0/addons/gut/fonts/::1767979165
+::res://Gut-9.5.0/addons/gut/fonts/::1767979167
 AnonymousPro-Bold.ttf::FontFile::7090493737101227053::1767979165::1767979167::1::::<><><>0<>0<>037d46a7925f8993426d5f6b4f72d402<>res://.godot/imported/AnonymousPro-Bold.ttf-cba960ebcbb0dae1e39db1ea3eef193a.fontdata::
 AnonymousPro-BoldItalic.ttf::FontFile::761724172175864::1767979165::1767979167::1::::<><><>0<>0<>019e4dab12cae76282f4fe563326c608<>res://.godot/imported/AnonymousPro-BoldItalic.ttf-df8caccb1dcf0f3cb03e19312a75f8fe.fontdata::
 AnonymousPro-Italic.ttf::FontFile::503495830806397342::1767979165::1767979167::1::::<><><>0<>0<>74949f4f447a8804ad302eb6e4c01ce5<>res://.godot/imported/AnonymousPro-Italic.ttf-a6027c2721d81c07b79c1d5682a4287d.fontdata::
@@ -172,7 +181,7 @@ LobsterTwo-BoldItalic.ttf::FontFile::3182965850633207044::1767979165::1767979167
 LobsterTwo-Italic.ttf::FontFile::7759867820021968437::1767979165::1767979167::1::::<><><>0<>0<>a8a352be04f5d2cf348e8cc7bf6331cc<>res://.godot/imported/LobsterTwo-Italic.ttf-52fca9fdc49606d3934f466bbd2a48e8.fontdata::
 LobsterTwo-Regular.ttf::FontFile::2115948870915788183::1767979165::1767979167::1::::<><><>0<>0<>5963c7dbc61fa0f9a8dd2dc9424f036a<>res://.godot/imported/LobsterTwo-Regular.ttf-c7347bb4907880d696d9f4101e550b15.fontdata::
 OFL.txt::TextFile::-1::1767979165::0::1::::<><><>0<>0<><>::
-::res://Gut-9.5.0/addons/gut/gui/::1767979166
+::res://Gut-9.5.0/addons/gut/gui/::1767979167
 about.gd::GDScript::488202083672295193::1767979166::0::1::::<>AcceptDialog<><>0<>1<><>::
 about.tscn::PackedScene::8284998557770768332::1767979166::0::1::::<><><>0<>0<><>::uid://g7qu8ihdt3pd::::res://addons/gut/gui/about.gd<>uid://bjkn8mhx2fmt1::::res://addons/gut/gui/GutLogo.tscn
 arrow.png::CompressedTexture2D::2222304255268796957::1767979166::1767979167::1::::<><><>0<>0<>507a873137d60d8de6ffc3241cac8351<>res://.godot/imported/arrow.png-6ab9173b73ccbb936c1cb45f13472517.ctex::
@@ -218,7 +227,7 @@ ShortcutButton.gd::GDScript::766347793735688544::1767979166::0::1::::<>Control<>
 ShortcutButton.tscn::PackedScene::1273828520004261174::1767979166::0::1::::<><><>0<>0<><>::uid://k6hvvpekp0xw::::res://addons/gut/gui/ShortcutButton.gd
 ShortcutDialog.gd::GDScript::7362128468376051141::1767979166::0::1::::<>ConfirmationDialog<><>0<>1<><>::
 ShortcutDialog.tscn::PackedScene::7854176491866295805::1767979166::0::1::::<><><>0<>0<><>::uid://dc5jgemxslgvl::::res://addons/gut/gui/ShortcutDialog.gd<>uid://sfb1fw8j6ufu::::res://addons/gut/gui/ShortcutButton.tscn
-::res://Gut-9.5.0/addons/gut/images/::1767979166
+::res://Gut-9.5.0/addons/gut/images/::1767979167
 eyey.png::CompressedTexture2D::8826714409196966634::1767979166::1767979167::1::::<><><>0<>0<>3a7add735a238720d293c365ec524e2c<>res://.godot/imported/eyey.png-fb8e24d7e1b25c4f28a637b569b7af67.ctex::
 Folder.svg::CompressedTexture2D::7694651741458501535::1767979166::1767979167::1::::<><><>0<>0<>a6fc1c5c678761a7f7487adc5d3ac391<>res://.godot/imported/Folder.svg-5654d57d73434c5430691ec6be0a8101.ctex::
 green.png::CompressedTexture2D::3896279560051998512::1767979166::1767979167::1::::<><><>0<>0<>c56c3491386d4fe79710c9124ac335ea<>res://.godot/imported/green.png-66ef797be9f5ebcb1df4685fec93d1a7.ctex::
@@ -229,14 +238,17 @@ red.png::CompressedTexture2D::2443263267725858415::1767979166::1767979167::1::::
 Script.svg::CompressedTexture2D::4817060143842260657::1767979166::1767979167::1::::<><><>0<>0<>fb5fa7b67d98f528b8a57b867c6fd272<>res://.godot/imported/Script.svg-5923f875015b2dbbdc63c7990ac89493.ctex::
 VSplitContainer.svg::CompressedTexture2D::2887385407422649463::1767979166::1767979167::1::::<><><>0<>0<>980ab025be68919fed717c782321972b<>res://.godot/imported/VSplitContainer.svg-e596ad6825e106125263f083bdcf1b1c.ctex::
 yellow.png::CompressedTexture2D::1043265824178416429::1767979166::1767979167::1::::<><><>0<>0<>47dc06ed87d5dce77352be3765f32665<>res://.godot/imported/yellow.png-9575153c221c76ed61a023fbd992ff12.ctex::
-::res://image/::1767888448
+::res://image/::1767979306
 ::res://image/ARCHITECTURE/::1767976638
 1767888448715.png::CompressedTexture2D::4880502265842991929::1767888449::1767976638::1::::<><><>0<>0<>0529cd8d130b274b861fe311b9c0c847<>res://.godot/imported/1767888448715.png-abd4a986aefea534e2b99096a50eb4b3.ctex::
+::res://image/Godot3D萌宠系统设计方案(V2.0)/::1768009701
+1767979306126.png::CompressedTexture2D::2074026355539598046::1767979306::1767979694::1::::<><><>0<>0<>43df432039abe9a20494d3304b5fbf5c<>res://.godot/imported/1767979306126.png-8610b96679c06f17bd2ea35c71843640.ctex::
+1768008794699.png::CompressedTexture2D::4165939389243743814::1768008795::1768009701::1::::<><><>0<>0<>eb82743b7afda403b607e731c922c700<>res://.godot/imported/1768008794699.png-2ba41cb6a0468be7b743b999bcbe03b7.ctex::
 ::res://scenes/::1767976539
-main.tscn::PackedScene::-1::1767977425::0::1::::<><><>0<>0<><>::res://scenes/pet.tscn<>res://scripts/websocket_client.gd<>res://scripts/camera_controller.gd<>res://scripts/ui_controller.gd<>res://assets/environment/stage/skybox.gdshader<>uid://bnqdokul6s4pt::::res://assets/environment/stage/skybox.webp
-pet.tscn::PackedScene::-1::1767977689::0::1::::<><><>0<>0<><>::res://scripts/pet_controller.gd<>uid://c3cve8nqyv2v4::::res://assets/models/player/player.glb
+main.tscn::PackedScene::-1::1768010590::0::1::::<><><>0<>0<><>::res://scenes/pet.tscn<>res://scripts/websocket_client.gd<>res://scripts/camera_controller.gd<>res://scripts/ui_controller.gd<>res://assets/environment/stage/skybox.gdshader<>uid://bnqdokul6s4pt::::res://assets/environment/stage/skybox.webp
+pet.tscn::PackedScene::-1::1767979656::0::1::::<><><>0<>0<><>::res://scripts/pet_controller.gd<>uid://c3cve8nqyv2v4::::res://assets/models/player/player.glb
 ::res://scripts/::1767976638
 camera_controller.gd::GDScript::8378202803930883762::1767976575::0::1::::<>Node3D<><>0<>0<><>::
-pet_controller.gd::GDScript::8931945136584820964::1767978455::0::1::::<>CharacterBody3D<><>0<>0<><>::
-ui_controller.gd::GDScript::4578172536247957637::1767976575::0::1::::<>Control<><>0<>0<><>::
-websocket_client.gd::GDScript::2054547864558290124::1767976575::0::1::::<>Node<><>0<>0<><>::
+pet_controller.gd::GDScript::8931945136584820964::1768011870::0::1::::<>CharacterBody3D<><>0<>0<><>::
+ui_controller.gd::GDScript::4578172536247957637::1768008448::0::1::::<>Control<><>0<>0<><>::
+websocket_client.gd::GDScript::2054547864558290124::1768011765::0::1::::<>Node<><>0<>0<><>::

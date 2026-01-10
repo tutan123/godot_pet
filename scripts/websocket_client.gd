@@ -76,7 +76,7 @@ func send_message(type: String, data: Dictionary) -> void:
 
 func _send_handshake() -> void:
 	send_message("handshake", {
-		"client_type": "godot",
+		"client_type": "godot_robot",
 		"version": "1.0",
 		"platform": OS.get_name()
 	})

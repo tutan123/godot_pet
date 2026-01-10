@@ -25,12 +25,26 @@ var last_anim_state: String = ""
 
 # 交互状态
 var is_dragging: bool = false
-var drag_target_pos: Vector3
+var drag_start_mouse_pos: Vector2
+var drag_threshold: float = 10.0 # 像素阈值，超过这个距离才算拖拽
+var click_start_time: float = 0.0
+var max_click_duration: float = 0.25 # 超过这个时间就不算点击
 
 # 程序化动作变量
 var proc_time: float = 0.0
-var shake_intensity: float = 0.0 # 抖动强度
-var tilt_angle: float = 0.0 # 倾斜角度（跑步时前倾）
+var shake_intensity: float = 0.0
+var tilt_angle: float = 0.0
+var proc_anim_active: String = "" # 当前正在执行的程序化动画名
+var proc_rot_y: float = 0.0 # 专门用于 spin 的旋转累计值
+
+# 状态声明式动作管理（参考网络游戏的状态同步模式）
+var current_action_state: Dictionary = {} # {name, priority, duration, start_time, interruptible}
+var action_queue: Array[Dictionary] = [] # 动作队列
+var action_lock_time: float = 0.0 # 动作锁定到期时间
+
+# 用于定时上报位置
+var sync_timer: float = 0.0
+var sync_interval: float = 1.0 # 每1秒同步一次位置到服务端
 
 # 用于服务端高频同步的插值缓冲
 var server_target_pos: Vector3
@@ -49,17 +63,65 @@ func _input_event(camera: Camera3D, event: InputEvent, position: Vector3, normal
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
-				_on_clicked()
-				is_dragging = true
-				_send_interaction("drag_start", position)
+				click_start_time = Time.get_unix_time_from_system()
+				drag_start_mouse_pos = get_viewport().get_mouse_position()
+				is_dragging = false 
 			else:
-				is_dragging = false
-				_send_interaction("drag_end", position)
+				var duration = Time.get_unix_time_from_system() - click_start_time
+				var mouse_move = (get_viewport().get_mouse_position() - drag_start_mouse_pos).length()
+				
+				if is_dragging:
+					# 结束拖拽
+					is_dragging = false
+					_send_interaction("drag_end", global_position)
+					_on_drag_finished()
+				elif click_start_time > 0 and duration < max_click_duration and mouse_move < drag_threshold:
+					# 确认为单击
+					_on_clicked()
+				
+				# 强制清空点击状态，彻底修复悬停起飞 Bug
+				click_start_time = 0
+				
+	elif event is InputEventMouseMotion and click_start_time > 0:
+		var mouse_move = (get_viewport().get_mouse_position() - drag_start_mouse_pos).length()
+		if not is_dragging and mouse_move > drag_threshold:
+			# 确认为拖拽开始
+			is_dragging = true
+			_send_interaction("drag_start", global_position)
+
+func _on_drag_finished() -> void:
+	# 姿态恢复逻辑
+	var tween = create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(mesh_root, "rotation:z", 0.0, 0.3)
+	tween.tween_property(mesh_root, "position:x", 0.0, 0.3)
+	tween.tween_property(mesh_root, "position:z", 0.0, 0.3)
+	if proc_anim_active == "":
+		tween.tween_property(mesh_root, "position:y", 0.0, 0.3)
 
 func _physics_process(delta: float) -> void:
 	proc_time += delta
 	
-	# 1. 拖拽逻辑处理
+	# 检查动作状态是否过期（状态声明式管理）
+	if not current_action_state.is_empty():
+		var elapsed = (Time.get_unix_time_from_system() - current_action_state.get("start_time", 0.0)) * 1000.0
+		var duration = current_action_state.get("duration", 3000)
+		if elapsed >= duration:
+			# 动作完成，清除状态（但不清除动画，让它自然过渡）
+			var action_name = current_action_state.get("name", "idle")
+			# 程序化动画需要手动清除
+			if action_name in ["fly", "spin", "bounce", "roll"]:
+				proc_anim_active = ""
+			current_action_state = {}
+			action_lock_time = 0.0
+	
+	# 定时同步状态到服务端
+	sync_timer += delta
+	if sync_timer >= sync_interval:
+		_send_state_sync()
+		sync_timer = 0.0
+	
+	# 1. 拖拽逻辑处理（最高优先级，直接中断所有动作）
 	if is_dragging:
 		_handle_dragging(delta)
 		return
@@ -86,11 +148,12 @@ func _physics_process(delta: float) -> void:
 	
 	# 4. 速度与动画状态判定
 	var move_vel = run_speed if is_running else walk_speed
+	var current_dir = Vector3.ZERO
 	
 	if direction.length() > 0.1:
 		velocity.x = direction.x * move_vel
 		velocity.z = direction.z * move_vel
-		rotation.y = lerp_angle(rotation.y, atan2(direction.x, direction.z), rotation_speed * delta)
+		current_dir = direction
 		_switch_anim("run" if is_running else "walk")
 		# 程序化前倾
 		tilt_angle = lerp(tilt_angle, 0.2 if is_running else 0.1, 5.0 * delta)
@@ -98,11 +161,11 @@ func _physics_process(delta: float) -> void:
 	elif is_server_moving:
 		var to_target = (target_position - global_position)
 		to_target.y = 0
-		if to_target.length() > 0.2:
+		if to_target.length() > 0.25: # 增加一点阈值缓冲
 			var dir = to_target.normalized()
 			velocity.x = dir.x * walk_speed
 			velocity.z = dir.z * walk_speed
-			rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), rotation_speed * delta)
+			current_dir = dir
 			_switch_anim("walk")
 			tilt_angle = lerp(tilt_angle, 0.1, 5.0 * delta)
 		else:
@@ -118,9 +181,21 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.x = move_toward(velocity.x, 0, walk_speed * delta * 10)
 		velocity.z = move_toward(velocity.z, 0, walk_speed * delta * 10)
-		if is_on_floor():
+		# 只有在没有正在执行的服务端动作时，才自动切换回本地 idle
+		if is_on_floor() and current_action_state.is_empty():
 			_switch_anim("idle")
 		tilt_angle = lerp(tilt_angle, 0.0, 5.0 * delta)
+
+	# 统一处理朝向，平滑转向
+	if current_dir.length() > 0.1:
+		var target_rotation = atan2(current_dir.x, current_dir.z)
+		rotation.y = lerp_angle(rotation.y, target_rotation, rotation_speed * delta)
+	elif velocity.length() > 0.5:
+		# 即使没有直接指令，如果有显著位移速度（如惯性或下落），也稍微平滑保持朝向
+		var move_dir = Vector3(velocity.x, 0, velocity.z).normalized()
+		if move_dir.length() > 0.1:
+			var target_rotation = atan2(move_dir.x, move_dir.z)
+			rotation.y = lerp_angle(rotation.y, target_rotation, rotation_speed * 0.5 * delta)
 
 	# 5. 跳跃
 	if is_on_floor() and Input.is_action_just_pressed("jump"):
@@ -129,7 +204,20 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 	
-	# 6. 应用程序化动画 (叠加效果)
+	# 7. 碰撞检测与上报
+	if get_slide_collision_count() > 0:
+		var collision = get_last_slide_collision()
+		var collider = collision.get_collider()
+		if collider and collider.name != "Floor": # 忽略地板碰撞，减少无效上报
+			_send_interaction("collision", {
+				"collider_name": collider.name,
+				"position": [collision.get_position().x, collision.get_position().y, collision.get_position().z],
+				"normal": [collision.get_normal().x, collision.get_normal().y, collision.get_normal().z]
+			})
+
+func _process(delta: float) -> void:
+	# 8. 应用程序化动画 (叠加效果)
+	# 在 _process 中执行以覆盖骨骼动画的渲染位置
 	_apply_procedural_fx(delta)
 
 func _handle_dragging(delta: float) -> void:
@@ -156,11 +244,54 @@ func _on_clicked() -> void:
 	tween.tween_property(mesh_root, "scale", Vector3(1.0, 1.0, 1.0) * 0.3, 0.2).set_trans(Tween.TRANS_BOUNCE)
 
 func _apply_procedural_fx(delta: float) -> void:
-	# A. 基础呼吸感
-	var idle_float = sin(proc_time * 2.0) * 0.05 if last_anim_state == "idle" else 0.0
-	mesh_root.position.y = idle_float
+	# 基础目标值
+	var target_pos_y = 0.0
+	var target_rot_x = tilt_angle
+	var target_rot_z = 0.0
+	var target_scale_y = 0.3
 	
-	# B. 点击后的抖动衰减
+	# A. 基础呼吸感 (仅在 Idle 时)
+	if last_anim_state == "idle":
+		target_pos_y = sin(proc_time * 2.0) * 0.05
+	
+	# B. 根据当前活跃的程序化动作计算目标值
+	match proc_anim_active:
+		"wave":
+			target_rot_z = sin(proc_time * 15.0) * 0.15
+			target_scale_y = 0.3 * (1.0 + sin(proc_time * 10.0) * 0.05)
+		"spin":
+			proc_rot_y += delta * 20.0 # 持续增加旋转
+		"bounce":
+			target_pos_y = abs(sin(proc_time * 10.0)) * 0.5
+			target_scale_y = 0.3 * (1.0 - target_pos_y * 0.2)
+		"fly":
+			target_pos_y = 1.0 + sin(proc_time * 3.0) * 0.2
+			target_rot_x = 0.3
+		"roll":
+			target_rot_z += delta * 15.0 # 持续增加
+	
+	# C. 拖拽时的特殊覆盖
+	if is_dragging:
+		target_rot_z = sin(proc_time * 10.0) * 0.2
+	
+	# D. 最终平滑应用到模型 (除了自增量)
+	mesh_root.position.y = lerp(mesh_root.position.y, target_pos_y, 10.0 * delta)
+	mesh_root.rotation.x = lerp(mesh_root.rotation.x, target_rot_x, 10.0 * delta)
+	
+	# 只有在非特殊旋转动作时才重置 Z 轴和 Y 轴（平滑回归 0）
+	if proc_anim_active != "wave" and proc_anim_active != "roll" and not is_dragging:
+		mesh_root.rotation.z = lerp(mesh_root.rotation.z, target_rot_z, 10.0 * delta)
+	
+	# 核心修复：如果是 spin，直接应用累加的旋转；否则，平滑回归 0
+	if proc_anim_active == "spin":
+		mesh_root.rotation.y = proc_rot_y
+	else:
+		proc_rot_y = lerp_angle(proc_rot_y, 0, 5.0 * delta)
+		mesh_root.rotation.y = proc_rot_y
+		
+	mesh_root.scale.y = lerp(mesh_root.scale.y, target_scale_y, 10.0 * delta)
+	
+	# E. 点击后的抖动反馈 (独立叠加)
 	if shake_intensity > 0:
 		mesh_root.position.x = (randf() - 0.5) * shake_intensity * 0.2
 		mesh_root.position.z = (randf() - 0.5) * shake_intensity * 0.2
@@ -168,33 +299,68 @@ func _apply_procedural_fx(delta: float) -> void:
 	else:
 		mesh_root.position.x = move_toward(mesh_root.position.x, 0, delta)
 		mesh_root.position.z = move_toward(mesh_root.position.z, 0, delta)
-	
-	# C. 运动时的身体前倾
-	mesh_root.rotation.x = tilt_angle
-	
-	# D. 拖拽结束后的姿态恢复
-	if not is_dragging:
-		mesh_root.rotation.z = move_toward(mesh_root.rotation.z, 0, delta * 5.0)
 
 func _switch_anim(anim_name: String) -> void:
+	# 检查是否是程序化动画
+	var proc_anims = ["wave", "spin", "bounce", "fly", "roll"]
+	if anim_name in proc_anims:
+		proc_anim_active = anim_name
+		# 即使是程序化动画，也尝试播放 idle 以确保基础姿态
+		if playback: playback.travel("idle")
+		last_anim_state = anim_name
+		return
+	
+	# 切换回常规动画时，关闭程序化动画
+	proc_anim_active = ""
+	
 	if last_anim_state == anim_name and anim_name != "jump":
 		return
 	if playback:
 		playback.travel(anim_name)
 		last_anim_state = anim_name
 
-func _send_interaction(action: String, pos: Vector3) -> void:
+func _send_interaction(action: String, extra_data: Variant) -> void:
 	if ws_client and ws_client.is_connected:
-		ws_client.send_message("interaction", {
-			"action": action,
-			"position": [pos.x, pos.y, pos.z]
+		var data = {
+			"action": action
+		}
+		
+		if extra_data is Vector3:
+			data["position"] = [extra_data.x, extra_data.y, extra_data.z]
+		elif extra_data is Dictionary:
+			for key in extra_data.keys():
+				data[key] = extra_data[key]
+				
+		ws_client.send_message("interaction", data)
+
+func _send_state_sync() -> void:
+	if ws_client and ws_client.is_connected:
+		ws_client.send_message("state_sync", {
+			"position": [global_position.x, global_position.y, global_position.z],
+			"current_action": last_anim_state,
+			"is_dragging": is_dragging,
+			"is_on_floor": is_on_floor()
 		})
 
 func _on_ws_message(type: String, data: Dictionary) -> void:
+	# print("Received message: ", type, data)
 	match type:
 		"bt_output":
-			if data.has("action"):
-				_switch_anim(data["action"].to_lower())
+			# 优先使用状态声明式协议 (actionState)
+			if data.has("actionState"):
+				var action_state = data["actionState"]
+				_apply_action_state(action_state)
+			# 向后兼容：直接 action 字段
+			elif data.has("action"):
+				var action_name = data["action"].to_lower()
+				# 转换为状态格式
+				_apply_action_state({
+					"name": action_name,
+					"priority": 50,
+					"duration": 3000,
+					"interruptible": true,
+					"timestamp": Time.get_unix_time_from_system()
+				})
 		"move_to":
 			if data.has("target"):
 				var t = data["target"]
@@ -206,3 +372,46 @@ func _on_ws_message(type: String, data: Dictionary) -> void:
 				server_target_pos = Vector3(p[0], p[1], p[2])
 				use_high_freq_sync = true
 				is_server_moving = false
+
+# 状态声明式动作管理：参考网络游戏的状态同步模式
+func _apply_action_state(action_state: Dictionary) -> void:
+	var action_name = action_state.get("name", "idle").to_lower()
+	var priority = action_state.get("priority", 50)
+	var duration_ms = action_state.get("duration", 3000)
+	var interruptible = action_state.get("interruptible", true)
+	var timestamp = action_state.get("timestamp", Time.get_unix_time_from_system())
+	
+	# 检查优先级和中断规则
+	var current_priority = current_action_state.get("priority", 0)
+	var current_duration = current_action_state.get("duration", 0)
+	var current_start_time = current_action_state.get("start_time", 0.0)
+	var current_interruptible = current_action_state.get("interruptible", true)
+	var elapsed = (Time.get_unix_time_from_system() - current_start_time) * 1000.0
+	
+	# 判断是否应该中断当前动作
+	var should_interrupt = false
+	if current_action_state.is_empty():
+		should_interrupt = true
+	elif priority > current_priority:
+		# 高优先级可以中断低优先级
+		should_interrupt = true
+	elif interruptible and current_interruptible:
+		# 两个都可中断，按优先级
+		if priority >= current_priority:
+			should_interrupt = true
+	elif elapsed >= current_duration:
+		# 当前动作已完成
+		should_interrupt = true
+	
+	if should_interrupt:
+		current_action_state = {
+			"name": action_name,
+			"priority": priority,
+			"duration": duration_ms,
+			"interruptible": interruptible,
+			"start_time": Time.get_unix_time_from_system(),
+			"timestamp": timestamp
+		}
+		action_lock_time = Time.get_unix_time_from_system() + (duration_ms / 1000.0)
+		_switch_anim(action_name)
+		print("[Pet] Applied action state: %s (priority: %d, duration: %dms, interruptible: %s)" % [action_name, priority, duration_ms, interruptible])
