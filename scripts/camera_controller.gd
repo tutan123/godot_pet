@@ -39,6 +39,10 @@ func _input(event: InputEvent) -> void:
 
 	# 滚轮缩放
 	if event is InputEventMouseButton:
+		# 修复：如果鼠标正在 UI 上或者输入框有焦点，不处理缩放
+		if get_viewport().gui_get_focus_owner() is LineEdit:
+			return
+			
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			spring_arm.spring_length = clamp(spring_arm.spring_length - zoom_speed, min_zoom, max_zoom)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:

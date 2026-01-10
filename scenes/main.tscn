@@ -31,6 +31,19 @@ metallic = 0.1
 
 [sub_resource type="WorldBoundaryShape3D" id="WorldBoundaryShape3D_1"]
 
+[sub_resource type="SphereShape3D" id="SphereShape3D_ball"]
+radius = 0.3
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ball"]
+albedo_color = Color(0.8, 0.2, 0.2, 1)
+roughness = 0.4
+metallic = 0.5
+
+[sub_resource type="SphereMesh" id="SphereMesh_ball"]
+material = SubResource("StandardMaterial3D_ball")
+radius = 0.3
+height = 0.6
+
 [node name="Main" type="Node3D"]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
@@ -52,12 +65,55 @@ material = SubResource("StandardMaterial3D_floor")
 shape = SubResource("WorldBoundaryShape3D_1")
 
 [node name="StageDecor" type="Node3D" parent="."]
-
 [node name="Platform1" type="CSGBox3D" parent="StageDecor"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, -8)
 use_collision = true
 size = Vector3(10, 0.5, 4)
 material = SubResource("StandardMaterial3D_floor")
+
+[node name="PhysicsTest" type="Node3D" parent="."]
+
+[node name="Ramp" type="CSGPolygon3D" parent="PhysicsTest"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, 0, 5)
+use_collision = true
+polygon = PackedVector2Array(0, 0, 5, 2, 5, 0)
+depth = 4.0
+material = SubResource("StandardMaterial3D_floor")
+
+[node name="Basin" type="CSGCombiner3D" parent="PhysicsTest"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 5)
+use_collision = true
+
+[node name="Base" type="CSGBox3D" parent="PhysicsTest/Basin"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+size = Vector3(6, 0.2, 6)
+material = SubResource("StandardMaterial3D_floor")
+
+[node name="Bottom" type="CSGCylinder3D" parent="PhysicsTest/Basin"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+radius = 2.5
+height = 0.1
+material = SubResource("StandardMaterial3D_floor")
+
+[node name="Hole" type="CSGSphere3D" parent="PhysicsTest/Basin"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+operation = 2
+radius = 2.0
+radial_segments = 32
+rings = 16
+material = SubResource("StandardMaterial3D_floor")
+
+[node name="Ball" type="RigidBody3D" parent="PhysicsTest"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 5, 5)
+mass = 0.5
+friction = 0.5
+bounce = 0.3
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PhysicsTest/Ball"]
+shape = SubResource("SphereShape3D_ball")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="PhysicsTest/Ball"]
+mesh = SubResource("SphereMesh_ball")
 
 [node name="Column1" type="CSGCylinder3D" parent="StageDecor"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0.4, -10)

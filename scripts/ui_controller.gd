@@ -19,10 +19,11 @@ func _ready() -> void:
 		ws_client.disconnected.connect(func(): _log("Disconnected from server."))
 
 func _input(event: InputEvent) -> void:
-	# 修复：点击 UI 以外的区域时，释放输入框焦点
+	# 关键修复：点击聊天面板 ($Panel) 以外的任何区域，都立即释放焦点
 	if event is InputEventMouseButton and event.pressed:
 		var mouse_pos = get_viewport().get_mouse_position()
-		if not get_rect().has_point(mouse_pos):
+		var panel: Panel = $Panel
+		if panel and not panel.get_global_rect().has_point(mouse_pos):
 			input_edit.release_focus()
 
 func _on_send_pressed() -> void:

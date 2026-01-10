@@ -13,6 +13,7 @@ extends CharacterBody3D
 @export var run_speed: float = 7.0
 @export var rotation_speed: float = 12.0
 @export var jump_velocity: float = 6.5
+@export var push_force: float = 0.5 # 显著减小推力，从 5.0 降到 0.5
 
 @export_group("Interaction Settings")
 @export var drag_height: float = 1.5
@@ -102,6 +103,13 @@ func _on_drag_finished() -> void:
 func _physics_process(delta: float) -> void:
 	proc_time += delta
 	
+	# 0. 提前获取输入状态，供后续逻辑使用
+	var focus_owner = get_viewport().gui_get_focus_owner()
+	var is_typing = focus_owner is LineEdit
+	var input_dir = Vector2.ZERO
+	if not is_typing:
+		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	
 	# 检查动作状态是否过期（状态声明式管理）
 	if not current_action_state.is_empty():
 		var elapsed = (Time.get_unix_time_from_system() - current_action_state.get("start_time", 0.0)) * 1000.0
@@ -130,16 +138,19 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 	else:
-		velocity.y = 0
+		# 修复：在斜坡上如果无输入，允许顺着坡度下滑（模拟真实物理）
+		var floor_normal = get_floor_normal()
+		if input_dir.length() < 0.1 and not is_server_moving and floor_normal.y < 0.99:
+			# 计算下滑分量
+			var slide_gravity = Vector3(0, -gravity, 0).slide(floor_normal)
+			velocity.x = lerp(velocity.x, slide_gravity.x, 2.0 * delta)
+			velocity.z = lerp(velocity.z, slide_gravity.z, 2.0 * delta)
+			velocity.y = slide_gravity.y
+		else:
+			# 保持微小下压力
+			velocity.y = -0.1
 
 	# 3. 本地输入处理 (WASD)
-	var focus_owner = get_viewport().gui_get_focus_owner()
-	var is_typing = focus_owner is LineEdit
-	
-	var input_dir = Vector2.ZERO
-	if not is_typing:
-		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	
 	var is_running = Input.is_key_pressed(KEY_SHIFT) if not is_typing else false
 	var camera = get_viewport().get_camera_3d()
 	var direction = Vector3.ZERO
@@ -209,6 +220,16 @@ func _physics_process(delta: float) -> void:
 		_switch_anim("jump")
 
 	move_and_slide()
+	
+	# 6.5 物理推力处理 (让机器人能推球)
+	for i in get_slide_collision_count():
+		var collision = get_slide_collision(i)
+		var collider = collision.get_collider()
+		if collider is RigidBody3D:
+			# 优化公式：减小基础倍率，让推力更柔和
+			var push_dir = -collision.get_normal()
+			push_dir.y = 0
+			collider.apply_central_impulse(push_dir * push_force)
 	
 	# 7. 碰撞检测与上报
 	if get_slide_collision_count() > 0:
@@ -317,23 +338,28 @@ func _apply_procedural_fx(delta: float) -> void:
 		mesh_root.position.z = move_toward(mesh_root.position.z, 0, delta)
 
 func _switch_anim(anim_name: String) -> void:
+	# 动作名称映射：将 LLM 可能发送的别名映射到内部程序化名称
+	var normalized_name = anim_name.to_lower()
+	if normalized_name == "backflip": normalized_name = "flip"
+	if normalized_name == "shiver": normalized_name = "shake"
+	
 	# 检查是否是程序化动画
 	var proc_anims = ["wave", "spin", "bounce", "fly", "roll", "shake", "flip"]
-	if anim_name in proc_anims:
-		proc_anim_active = anim_name
+	if normalized_name in proc_anims:
+		proc_anim_active = normalized_name
 		# 即使是程序化动画，也尝试播放 idle 以确保基础姿态
 		if playback: playback.travel("idle")
-		last_anim_state = anim_name
+		last_anim_state = normalized_name
 		return
 	
 	# 切换回常规动画时，关闭程序化动画
 	proc_anim_active = ""
 	
-	if last_anim_state == anim_name and anim_name != "jump":
+	if last_anim_state == normalized_name and normalized_name != "jump":
 		return
 	if playback:
-		playback.travel(anim_name)
-		last_anim_state = anim_name
+		playback.travel(normalized_name)
+		last_anim_state = normalized_name
 
 func _send_interaction(action: String, extra_data: Variant) -> void:
 	if ws_client and ws_client.is_connected:

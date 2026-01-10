@@ -1,5 +1,5 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1768011287
+::res://::1768023189
 ::res://assets/::1767976926
 ::res://assets/environment/::1767976926
 ::res://assets/environment/stage/::1767976927
@@ -91,10 +91,10 @@ godot-pet-design.md::TextFile::-1::1767887710::0::1::::<><><>0<>0<><>::
 物理与环境同步方案.md::TextFile::-1::1768009300::0::1::::<><><>0<>0<><>::
 状态声明式通信架构改进.md::TextFile::-1::1768013815::0::1::::<><><>0<>0<><>::
 网络通信技术选型文档.md::TextFile::-1::1767975916::0::1::::<><><>0<>0<><>::
-行为树和状态机选择.md::TextFile::-1::1768020097::0::1::::<><><>0<>0<><>::
+行为树和状态机选择.md::TextFile::-1::1768021274::0::1::::<><><>0<>0<><>::
 黑板系统数据规范.md::TextFile::-1::1768019158::0::1::::<><><>0<>0<><>::
 ::res://docs/image/::1768009727
-::res://docs/image/行为树和状态机选择/::1768020101
+::res://docs/image/行为树和状态机选择/::1768020154
 1768010035207.png::CompressedTexture2D::2975858279117855967::1768010035::1768011287::1::::<><><>0<>0<>44f4b60dfef6aa90e9654cd72cd37824<>res://.godot/imported/1768010035207.png-1d951c020b45eee8c1c1a5a3d1ba90db.ctex::
 1768012043690.png::CompressedTexture2D::1089255673584575813::1768012044::1768013437::1::::<><><>0<>0<>8dd6ba29be6c217c8640d9a6df6991e0<>res://.godot/imported/1768012043690.png-34453f13f935bdbdc0fb6dba05f9188f.ctex::
 1768019507899.png::CompressedTexture2D::3113165967686863159::1768019508::1768020154::1::::<><><>0<>0<>842b5454d949cf17c9b55fb190cab166<>res://.godot/imported/1768019507899.png-1d387807d742f2967023cee09ca7621e.ctex::
@@ -251,10 +251,10 @@ yellow.png::CompressedTexture2D::1043265824178416429::1767979166::1767979167::1:
 1767979306126.png::CompressedTexture2D::2074026355539598046::1767979306::1767979694::1::::<><><>0<>0<>43df432039abe9a20494d3304b5fbf5c<>res://.godot/imported/1767979306126.png-8610b96679c06f17bd2ea35c71843640.ctex::
 1768008794699.png::CompressedTexture2D::4165939389243743814::1768008795::1768009701::1::::<><><>0<>0<>eb82743b7afda403b607e731c922c700<>res://.godot/imported/1768008794699.png-2ba41cb6a0468be7b743b999bcbe03b7.ctex::
 ::res://scenes/::1767976539
-main.tscn::PackedScene::-1::1768010590::0::1::::<><><>0<>0<><>::res://scenes/pet.tscn<>res://scripts/websocket_client.gd<>res://scripts/camera_controller.gd<>res://scripts/ui_controller.gd<>res://assets/environment/stage/skybox.gdshader<>uid://bnqdokul6s4pt::::res://assets/environment/stage/skybox.webp
+main.tscn::PackedScene::-1::1768021768::0::1::::<><><>0<>0<><>::res://scenes/pet.tscn<>res://scripts/websocket_client.gd<>res://scripts/camera_controller.gd<>res://scripts/ui_controller.gd<>res://assets/environment/stage/skybox.gdshader<>uid://bnqdokul6s4pt::::res://assets/environment/stage/skybox.webp
 pet.tscn::PackedScene::-1::1767979656::0::1::::<><><>0<>0<><>::res://scripts/pet_controller.gd<>uid://c3cve8nqyv2v4::::res://assets/models/player/player.glb
 ::res://scripts/::1767976638
-camera_controller.gd::GDScript::8378202803930883762::1767976575::0::1::::<>Node3D<><>0<>0<><>::
-pet_controller.gd::GDScript::8931945136584820964::1768017663::0::1::::<>CharacterBody3D<><>0<>0<><>::
-ui_controller.gd::GDScript::4578172536247957637::1768019158::0::1::::<>Control<><>0<>0<><>::
+camera_controller.gd::GDScript::8378202803930883762::1768021774::0::1::::<>Node3D<><>0<>0<><>::
+pet_controller.gd::GDScript::8931945136584820964::1768022754::0::1::::<>CharacterBody3D<><>0<>0<><>::
+ui_controller.gd::GDScript::4578172536247957637::1768022464::0::1::::<>Control<><>0<>0<><>::
 websocket_client.gd::GDScript::2054547864558290124::1768011765::0::1::::<>Node<><>0<>0<><>::
