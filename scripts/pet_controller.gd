@@ -133,8 +133,14 @@ func _physics_process(delta: float) -> void:
 		velocity.y = 0
 
 	# 3. 本地输入处理 (WASD)
-	var input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	var is_running = Input.is_key_pressed(KEY_SHIFT)
+	var focus_owner = get_viewport().gui_get_focus_owner()
+	var is_typing = focus_owner is LineEdit
+	
+	var input_dir = Vector2.ZERO
+	if not is_typing:
+		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	
+	var is_running = Input.is_key_pressed(KEY_SHIFT) if not is_typing else false
 	var camera = get_viewport().get_camera_3d()
 	var direction = Vector3.ZERO
 	
@@ -208,11 +214,15 @@ func _physics_process(delta: float) -> void:
 	if get_slide_collision_count() > 0:
 		var collision = get_last_slide_collision()
 		var collider = collision.get_collider()
-		if collider and collider.name != "Floor": # 忽略地板碰撞，减少无效上报
+		var normal = collision.get_normal()
+		
+		# 智能过滤：如果碰撞法线主要向上 (Y > 0.7)，说明是踩在物体上，不是撞到物体
+		# 这样可以自动兼容 Floor, Platform, Column 顶部等所有地面
+		if collider and normal.y < 0.7: 
 			_send_interaction("collision", {
 				"collider_name": collider.name,
 				"position": [collision.get_position().x, collision.get_position().y, collision.get_position().z],
-				"normal": [collision.get_normal().x, collision.get_normal().y, collision.get_normal().z]
+				"normal": [normal.x, normal.y, normal.z]
 			})
 
 func _process(delta: float) -> void:
@@ -269,6 +279,12 @@ func _apply_procedural_fx(delta: float) -> void:
 			target_rot_x = 0.3
 		"roll":
 			target_rot_z += delta * 15.0 # 持续增加
+		"shake":
+			mesh_root.position.x = sin(proc_time * 25.0) * 0.1
+			target_rot_z = sin(proc_time * 20.0) * 0.1
+		"flip":
+			target_rot_x += delta * 15.0 # 持续翻转
+			target_pos_y = abs(sin(proc_time * 10.0)) * 0.8
 	
 	# C. 拖拽时的特殊覆盖
 	if is_dragging:
@@ -302,7 +318,7 @@ func _apply_procedural_fx(delta: float) -> void:
 
 func _switch_anim(anim_name: String) -> void:
 	# 检查是否是程序化动画
-	var proc_anims = ["wave", "spin", "bounce", "fly", "roll"]
+	var proc_anims = ["wave", "spin", "bounce", "fly", "roll", "shake", "flip"]
 	if anim_name in proc_anims:
 		proc_anim_active = anim_name
 		# 即使是程序化动画，也尝试播放 idle 以确保基础姿态
@@ -335,11 +351,17 @@ func _send_interaction(action: String, extra_data: Variant) -> void:
 
 func _send_state_sync() -> void:
 	if ws_client and ws_client.is_connected:
+		# 获取当前键盘输入状态，用于点亮行为树
+		var input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+		var is_moving_locally = input_dir.length() > 0.1 and not (get_viewport().gui_get_focus_owner() is LineEdit)
+		
 		ws_client.send_message("state_sync", {
 			"position": [global_position.x, global_position.y, global_position.z],
 			"current_action": last_anim_state,
 			"is_dragging": is_dragging,
-			"is_on_floor": is_on_floor()
+			"is_on_floor": is_on_floor(),
+			"is_moving_locally": is_moving_locally,
+			"velocity": [velocity.x, velocity.y, velocity.z]
 		})
 
 func _on_ws_message(type: String, data: Dictionary) -> void:

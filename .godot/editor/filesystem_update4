@@ -1,2 +1,3 @@
 res://scripts/pet_controller.gd
 res://scripts/websocket_client.gd
+res://scripts/ui_controller.gd
