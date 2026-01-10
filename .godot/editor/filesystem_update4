@@ -1,3 +1,4 @@
-res://scripts/ui_controller.gd
-res://scripts/websocket_client.gd
+res://scripts/test_pet_controller.gd
+res://scripts/test_ui_controller.gd
+res://scripts/test_websocket_client.gd
 res://scripts/pet_controller.gd

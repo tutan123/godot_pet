@@ -3,6 +3,27 @@ extends CharacterBody3D
 ## PetController.gd
 ## 增强版控制器：支持 Idle/Walk/Run、鼠标点击/拖拽交互、程序化动作及服务端同步。
 
+## 动画状态枚举
+enum AnimState {
+	IDLE,
+	WALK,
+	RUN,
+	JUMP,
+	WAVE
+}
+
+## 程序化动画类型
+enum ProcAnimType {
+	NONE,
+	WAVE,
+	SPIN,
+	BOUNCE,
+	FLY,
+	ROLL,
+	SHAKE,
+	FLIP
+}
+
 @onready var animation_tree: AnimationTree = $AnimationTree
 @onready var playback: AnimationNodeStateMachinePlayback = animation_tree.get("parameters/playback")
 @onready var ws_client = get_node_or_null("/root/Main/WebSocketClient")
@@ -22,7 +43,8 @@ extends CharacterBody3D
 var target_position: Vector3
 var is_server_moving: bool = false
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
-var last_anim_state: String = ""
+var current_anim_state: AnimState = AnimState.IDLE
+var proc_anim_type: ProcAnimType = ProcAnimType.NONE
 
 # 交互状态
 var is_dragging: bool = false
@@ -31,11 +53,10 @@ var drag_threshold: float = 10.0 # 像素阈值，超过这个距离才算拖拽
 var click_start_time: float = 0.0
 var max_click_duration: float = 0.25 # 超过这个时间就不算点击
 
-	# 程序化动作变量
+# 程序化动作变量
 var proc_time: float = 0.0
 var shake_intensity: float = 0.0
 var tilt_angle: float = 0.0
-var proc_anim_active: String = "" # 当前正在执行的程序化动画名
 var proc_rot_y: float = 0.0 # 专门用于 spin 的旋转累计值
 var proc_rot_x: float = 0.0 # 专门用于 flip 的旋转累计值
 
@@ -99,170 +120,38 @@ func _on_drag_finished() -> void:
 	tween.tween_property(mesh_root, "rotation:z", 0.0, 0.3)
 	tween.tween_property(mesh_root, "position:x", 0.0, 0.3)
 	tween.tween_property(mesh_root, "position:z", 0.0, 0.3)
-	if proc_anim_active == "":
+	if proc_anim_type == ProcAnimType.NONE:
 		tween.tween_property(mesh_root, "position:y", 0.0, 0.3)
 
 func _physics_process(delta: float) -> void:
 	proc_time += delta
 	
-	# 0. 提前获取输入状态，供后续逻辑使用
-	var focus_owner = get_viewport().gui_get_focus_owner()
-	var is_typing = focus_owner is LineEdit
-	var input_dir = Vector2.ZERO
-	if not is_typing:
-		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	# 1. 前置检查和更新
+	_update_action_state_expiry()
+	_update_state_sync(delta)
 	
-	# 检查动作状态是否过期（状态声明式管理）
-	if not current_action_state.is_empty():
-		var elapsed = (Time.get_unix_time_from_system() - current_action_state.get("start_time", 0.0)) * 1000.0
-		var duration = current_action_state.get("duration", 3000)
-		if elapsed >= duration:
-			# 动作完成，清除状态（但不清除动画，让它自然过渡）
-			var action_name = current_action_state.get("name", "idle")
-			# 程序化动画需要手动清除，并重置旋转累计值
-			if action_name in ["fly", "spin", "bounce", "roll", "flip", "wave", "shake"]:
-				if action_name == "spin":
-					proc_rot_y = 0.0
-				if action_name == "flip":
-					proc_rot_x = 0.0
-				proc_anim_active = ""
-			current_action_state = {}
-			action_lock_time = 0.0
-	
-	# 定时同步状态到服务端
-	sync_timer += delta
-	if sync_timer >= sync_interval:
-		_send_state_sync()
-		sync_timer = 0.0
-	
-	# 1. 拖拽逻辑处理（最高优先级，直接中断所有动作）
+	# 2. 拖拽处理（最高优先级）
 	if is_dragging:
 		_handle_dragging(delta)
 		return
-
-	# 2. 重力
-	if not is_on_floor():
-		velocity.y -= gravity * delta
-	else:
-		# 修复：在斜坡上如果无输入，允许顺着坡度下滑（模拟真实物理）
-		var floor_normal = get_floor_normal()
-		if input_dir.length() < 0.1 and not is_server_moving and floor_normal.y < 0.99:
-			# 计算下滑分量
-			var slide_gravity = Vector3(0, -gravity, 0).slide(floor_normal)
-			velocity.x = lerp(velocity.x, slide_gravity.x, 2.0 * delta)
-			velocity.z = lerp(velocity.z, slide_gravity.z, 2.0 * delta)
-			velocity.y = slide_gravity.y
-		else:
-			# 保持微小下压力
-			velocity.y = -0.1
-
-	# 3. 本地输入处理 (WASD)
-	var is_running = Input.is_key_pressed(KEY_SHIFT) if not is_typing else false
-	var camera = get_viewport().get_camera_3d()
-	var direction = Vector3.ZERO
 	
-	if input_dir.length() > 0.1:
-		is_server_moving = false
-		use_high_freq_sync = false
-		if camera:
-			var cam_basis = camera.global_transform.basis
-			direction = (cam_basis.x * input_dir.x + cam_basis.z * input_dir.y).normalized()
-			direction.y = 0
+	# 3. 输入和状态检测
+	var input_data = _get_input_data()
+	var movement_data = _calculate_movement(input_data, delta)
 	
-	# 4. 速度与动画状态判定
-	var move_vel = run_speed if is_running else walk_speed
-	var current_dir = Vector3.ZERO
+	# 4. 应用物理和移动
+	_apply_physics(movement_data, delta)
+	_apply_movement(movement_data, delta)
+	_handle_jump(input_data)
 	
-	if direction.length() > 0.1:
-		velocity.x = direction.x * move_vel
-		velocity.z = direction.z * move_vel
-		current_dir = direction
-		_switch_anim("run" if is_running else "walk")
-		# 程序化前倾
-		tilt_angle = lerp(tilt_angle, 0.2 if is_running else 0.1, 5.0 * delta)
-		
-	elif is_server_moving:
-		var to_target = (target_position - global_position)
-		to_target.y = 0
-		if to_target.length() > 0.25: # 增加一点阈值缓冲
-			var dir = to_target.normalized()
-			velocity.x = dir.x * walk_speed
-			velocity.z = dir.z * walk_speed
-			current_dir = dir
-			_switch_anim("walk")
-			tilt_angle = lerp(tilt_angle, 0.1, 5.0 * delta)
-		else:
-			is_server_moving = false
-			_switch_anim("idle")
-			tilt_angle = lerp(tilt_angle, 0.0, 5.0 * delta)
-			
-	elif use_high_freq_sync:
-		global_position = global_position.lerp(server_target_pos, 0.2)
-		_switch_anim("idle")
-		tilt_angle = lerp(tilt_angle, 0.0, 5.0 * delta)
-		
-	else:
-		velocity.x = move_toward(velocity.x, 0, walk_speed * delta * 10)
-		velocity.z = move_toward(velocity.z, 0, walk_speed * delta * 10)
-		# 只有在没有正在执行的服务端动作时，才自动切换回本地 idle
-		if is_on_floor() and current_action_state.is_empty():
-			_switch_anim("idle")
-		tilt_angle = lerp(tilt_angle, 0.0, 5.0 * delta)
-
-	# 统一处理朝向，平滑转向
-	if current_dir.length() > 0.1:
-		var target_rotation = atan2(current_dir.x, current_dir.z)
-		rotation.y = lerp_angle(rotation.y, target_rotation, rotation_speed * delta)
-	elif velocity.length() > 0.5:
-		# 即使没有直接指令，如果有显著位移速度（如惯性或下落），也稍微平滑保持朝向
-		var move_dir = Vector3(velocity.x, 0, velocity.z).normalized()
-		if move_dir.length() > 0.1:
-			var target_rotation = atan2(move_dir.x, move_dir.z)
-			rotation.y = lerp_angle(rotation.y, target_rotation, rotation_speed * 0.5 * delta)
-
-	# 5. 跳跃
-	var jump_pressed = Input.is_action_pressed("jump") and not is_typing
-	var jump_just_pressed = Input.is_action_just_pressed("jump") and not is_typing
-	
-	if is_on_floor() and jump_just_pressed:
-		velocity.y = jump_velocity
-		_switch_anim("jump")
-		# 立即发送跳跃事件给服务端（不需要等待定时同步）
-		if ws_client and ws_client.is_connected:
-			ws_client.send_message("interaction", {
-				"action": "jump",
-				"position": [global_position.x, global_position.y, global_position.z],
-				"velocity_y": velocity.y
-			})
-	
-	last_jump_pressed = jump_pressed
-
 	move_and_slide()
 	
-	# 6.5 物理推力处理 (让机器人能推球)
-	for i in get_slide_collision_count():
-		var collision = get_slide_collision(i)
-		var collider = collision.get_collider()
-		if collider is RigidBody3D:
-			# 优化公式：减小基础倍率，让推力更柔和
-			var push_dir = -collision.get_normal()
-			push_dir.y = 0
-			collider.apply_central_impulse(push_dir * push_force)
+	# 5. 落地后状态修正（必须在 move_and_slide 之后）
+	_handle_landing_state_fix(input_data, movement_data)
 	
-	# 7. 碰撞检测与上报
-	if get_slide_collision_count() > 0:
-		var collision = get_last_slide_collision()
-		var collider = collision.get_collider()
-		var normal = collision.get_normal()
-		
-		# 智能过滤：如果碰撞法线主要向上 (Y > 0.7)，说明是踩在物体上，不是撞到物体
-		# 这样可以自动兼容 Floor, Platform, Column 顶部等所有地面
-		if collider and normal.y < 0.7: 
-			_send_interaction("collision", {
-				"collider_name": collider.name,
-				"position": [collision.get_position().x, collision.get_position().y, collision.get_position().z],
-				"normal": [normal.x, normal.y, normal.z]
-			})
+	# 6. 碰撞和物理交互
+	_handle_collisions()
+	_handle_physics_push()
 
 func _process(delta: float) -> void:
 	# 8. 应用程序化动画 (叠加效果)
@@ -300,28 +189,28 @@ func _apply_procedural_fx(delta: float) -> void:
 	var target_scale_y = 0.3
 	
 	# A. 基础呼吸感 (仅在 Idle 时)
-	if last_anim_state == "idle":
+	if current_anim_state == AnimState.IDLE:
 		target_pos_y = sin(proc_time * 2.0) * 0.05
 	
 	# B. 根据当前活跃的程序化动作计算目标值
-	match proc_anim_active:
-		"wave":
+	match proc_anim_type:
+		ProcAnimType.WAVE:
 			target_rot_z = sin(proc_time * 15.0) * 0.15
 			target_scale_y = 0.3 * (1.0 + sin(proc_time * 10.0) * 0.05)
-		"spin":
+		ProcAnimType.SPIN:
 			proc_rot_y += delta * 20.0 # 持续增加旋转
-		"bounce":
+		ProcAnimType.BOUNCE:
 			target_pos_y = abs(sin(proc_time * 10.0)) * 0.5
 			target_scale_y = 0.3 * (1.0 - target_pos_y * 0.2)
-		"fly":
+		ProcAnimType.FLY:
 			target_pos_y = 1.0 + sin(proc_time * 3.0) * 0.2
 			target_rot_x = 0.3
-		"roll":
+		ProcAnimType.ROLL:
 			target_rot_z += delta * 15.0 # 持续增加
-		"shake":
+		ProcAnimType.SHAKE:
 			mesh_root.position.x = sin(proc_time * 25.0) * 0.1
 			target_rot_z = sin(proc_time * 20.0) * 0.1
-		"flip":
+		ProcAnimType.FLIP:
 			# 后空翻：基于动作状态的完整翻转，而不是持续弹跳
 			# 使用 current_action_state 的开始时间来计算已用时间
 			var action_start_time = current_action_state.get("start_time", 0.0)
@@ -363,18 +252,18 @@ func _apply_procedural_fx(delta: float) -> void:
 	mesh_root.position.y = lerp(mesh_root.position.y, target_pos_y, 10.0 * delta)
 	
 	# X 轴旋转：flip 使用累加旋转，其他动作平滑应用或回归
-	if proc_anim_active == "flip":
+	if proc_anim_type == ProcAnimType.FLIP:
 		mesh_root.rotation.x = proc_rot_x # 直接应用累加的旋转角度
 	else:
 		mesh_root.rotation.x = lerp(mesh_root.rotation.x, target_rot_x, 10.0 * delta)
 		proc_rot_x = lerp_angle(proc_rot_x, 0, 5.0 * delta) # 平滑回归 0
 	
 	# 只有在非特殊旋转动作时才重置 Z 轴（平滑回归 0）
-	if proc_anim_active != "wave" and proc_anim_active != "roll" and proc_anim_active != "flip" and not is_dragging:
+	if proc_anim_type not in [ProcAnimType.WAVE, ProcAnimType.ROLL, ProcAnimType.FLIP] and not is_dragging:
 		mesh_root.rotation.z = lerp(mesh_root.rotation.z, target_rot_z, 10.0 * delta)
 	
 	# Y 轴旋转：spin 使用累加旋转，其他动作平滑回归 0
-	if proc_anim_active == "spin":
+	if proc_anim_type == ProcAnimType.SPIN:
 		mesh_root.rotation.y = proc_rot_y
 	else:
 		proc_rot_y = lerp_angle(proc_rot_y, 0, 5.0 * delta)
@@ -391,40 +280,319 @@ func _apply_procedural_fx(delta: float) -> void:
 		mesh_root.position.x = move_toward(mesh_root.position.x, 0, delta)
 		mesh_root.position.z = move_toward(mesh_root.position.z, 0, delta)
 
+## 辅助数据结构
+class MovementData:
+	var direction: Vector3
+	var speed: float
+	var is_running: bool
+	var target_anim_state: AnimState
+	var tilt_target: float
+	
+	func _init():
+		direction = Vector3.ZERO
+		speed = 0.0
+		is_running = false
+		target_anim_state = AnimState.IDLE
+		tilt_target = 0.0
+
+class InputData:
+	var direction: Vector2
+	var is_running: bool
+	var is_typing: bool
+	var jump_pressed: bool
+	var jump_just_pressed: bool
+	
+	func _init():
+		direction = Vector2.ZERO
+		is_running = false
+		is_typing = false
+		jump_pressed = false
+		jump_just_pressed = false
+
+## 状态管理和更新方法
+func _update_action_state_expiry() -> void:
+	if current_action_state.is_empty():
+		return
+	
+	var elapsed = (Time.get_unix_time_from_system() - current_action_state.get("start_time", 0.0)) * 1000.0
+	var duration = current_action_state.get("duration", 3000)
+	
+	if elapsed >= duration:
+		var action_name = current_action_state.get("name", "idle")
+		_clear_procedural_anim(action_name)
+		current_action_state = {}
+		action_lock_time = 0.0
+
+func _update_state_sync(delta: float) -> void:
+	sync_timer += delta
+	if sync_timer >= sync_interval:
+		_send_state_sync()
+		sync_timer = 0.0
+
+func _get_input_data() -> InputData:
+	var data = InputData.new()
+	var focus_owner = get_viewport().gui_get_focus_owner()
+	data.is_typing = focus_owner is LineEdit
+	
+	if not data.is_typing:
+		data.direction = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+		data.is_running = Input.is_key_pressed(KEY_SHIFT)
+		data.jump_pressed = Input.is_action_pressed("jump")
+		data.jump_just_pressed = Input.is_action_just_pressed("jump")
+	
+	return data
+
+func _calculate_movement(input_data: InputData, delta: float) -> MovementData:
+	var movement = MovementData.new()
+	
+	# 本地输入移动
+	if input_data.direction.length() > 0.1:
+		is_server_moving = false
+		use_high_freq_sync = false
+		var camera = get_viewport().get_camera_3d()
+		if camera:
+			var cam_basis = camera.global_transform.basis
+			movement.direction = (cam_basis.x * input_data.direction.x + cam_basis.z * input_data.direction.y).normalized()
+			movement.direction.y = 0
+		
+		movement.is_running = input_data.is_running
+		movement.speed = run_speed if movement.is_running else walk_speed
+		movement.target_anim_state = AnimState.RUN if movement.is_running else AnimState.WALK
+		movement.tilt_target = 0.2 if movement.is_running else 0.1
+		
+	# 服务端移动
+	elif is_server_moving:
+		var to_target = (target_position - global_position)
+		to_target.y = 0
+		if to_target.length() > 0.25:
+			movement.direction = to_target.normalized()
+			movement.speed = walk_speed
+			movement.target_anim_state = AnimState.WALK
+			movement.tilt_target = 0.1
+		else:
+			is_server_moving = false
+			movement.target_anim_state = AnimState.IDLE
+			movement.tilt_target = 0.0
+			
+	# 高频同步（插值移动）
+	elif use_high_freq_sync:
+		global_position = global_position.lerp(server_target_pos, 0.2)
+		movement.target_anim_state = AnimState.IDLE
+		movement.tilt_target = 0.0
+		
+	# 静止状态
+	else:
+		movement.target_anim_state = AnimState.IDLE
+		movement.tilt_target = 0.0
+	
+	return movement
+
+func _apply_physics(movement_data: MovementData, delta: float) -> void:
+	if not is_on_floor():
+		velocity.y -= gravity * delta
+	else:
+		var floor_normal = get_floor_normal()
+		if movement_data.direction.length() < 0.1 and not is_server_moving and floor_normal.y < 0.99:
+			var slide_gravity = Vector3(0, -gravity, 0).slide(floor_normal)
+			velocity.x = lerp(velocity.x, slide_gravity.x, 2.0 * delta)
+			velocity.z = lerp(velocity.z, slide_gravity.z, 2.0 * delta)
+			velocity.y = slide_gravity.y
+		else:
+			velocity.y = -0.1
+
+func _apply_movement(movement_data: MovementData, delta: float) -> void:
+	if movement_data.direction.length() > 0.1:
+		velocity.x = movement_data.direction.x * movement_data.speed
+		velocity.z = movement_data.direction.z * movement_data.speed
+	else:
+		velocity.x = move_toward(velocity.x, 0, walk_speed * delta * 10)
+		velocity.z = move_toward(velocity.z, 0, walk_speed * delta * 10)
+	
+	# 朝向处理
+	if movement_data.direction.length() > 0.1:
+		var target_rotation = atan2(movement_data.direction.x, movement_data.direction.z)
+		rotation.y = lerp_angle(rotation.y, target_rotation, rotation_speed * delta)
+	elif velocity.length() > 0.5:
+		var move_dir = Vector3(velocity.x, 0, velocity.z).normalized()
+		if move_dir.length() > 0.1:
+			var target_rotation = atan2(move_dir.x, move_dir.z)
+			rotation.y = lerp_angle(rotation.y, target_rotation, rotation_speed * 0.5 * delta)
+	
+	# 倾斜角度平滑
+	tilt_angle = lerp(tilt_angle, movement_data.tilt_target, 5.0 * delta)
+	
+	# 动画状态切换
+	if current_action_state.is_empty():
+		_set_anim_state(movement_data.target_anim_state)
+
+func _handle_jump(input_data: InputData) -> void:
+	if is_on_floor() and input_data.jump_just_pressed:
+		velocity.y = jump_velocity
+		_set_anim_state(AnimState.JUMP)
+		if ws_client and ws_client.is_connected:
+			ws_client.send_message("interaction", {
+				"action": "jump",
+				"position": [global_position.x, global_position.y, global_position.z],
+				"velocity_y": velocity.y
+			})
+	last_jump_pressed = input_data.jump_pressed
+
+func _handle_landing_state_fix(input_data: InputData, movement_data: MovementData) -> void:
+	if not (is_on_floor() and playback):
+		return
+	
+	var current_playing = playback.get_current_node()
+	var is_jump_state = current_playing == "jump" or current_anim_state == AnimState.JUMP
+	
+	if is_jump_state:
+		# 落地后根据输入决定目标状态
+		var target_state: AnimState
+		if input_data.direction.length() > 0.1:
+			target_state = AnimState.RUN if input_data.is_running else AnimState.WALK
+		else:
+			target_state = AnimState.IDLE
+		
+		_force_anim_state(target_state)
+		print("[Pet] Forced animation switch after landing: %s -> %s" % [current_playing, _anim_state_to_string(target_state)])
+	elif current_action_state.is_empty() and input_data.direction.length() < 0.1:
+		if current_anim_state != AnimState.IDLE:
+			_set_anim_state(AnimState.IDLE)
+
+func _handle_collisions() -> void:
+	if get_slide_collision_count() == 0:
+		return
+	
+	var collision = get_last_slide_collision()
+	var collider = collision.get_collider()
+	var normal = collision.get_normal()
+	
+	# 智能过滤：如果碰撞法线主要向上 (Y > 0.7)，说明是踩在物体上，不是撞到物体
+	if collider and normal.y < 0.7:
+		_send_interaction("collision", {
+			"collider_name": collider.name,
+			"position": [collision.get_position().x, collision.get_position().y, collision.get_position().z],
+			"normal": [normal.x, normal.y, normal.z]
+		})
+
+func _handle_physics_push() -> void:
+	# 物理推力处理：让机器人能推球
+	for i in get_slide_collision_count():
+		var collision = get_slide_collision(i)
+		var collider = collision.get_collider()
+		if collider is RigidBody3D:
+			var push_dir = -collision.get_normal()
+			push_dir.y = 0
+			collider.apply_central_impulse(push_dir * push_force)
+
+## 动画状态管理（重构后的优雅版本）
+func _set_anim_state(new_state: AnimState, force: bool = false) -> void:
+	if not force and current_anim_state == new_state:
+		return
+	
+	if not playback:
+		return
+	
+	var state_name = _anim_state_to_string(new_state)
+	var prev_state = current_anim_state
+	var current_playing = playback.get_current_node()
+	
+	# 强制切换（特别是从jump状态切换时）
+	playback.travel(state_name)
+	current_anim_state = new_state
+	
+	if prev_state != new_state:
+		print("[Pet] Animation state: %s -> %s (was playing: %s)" % [_anim_state_to_string(prev_state), state_name, current_playing])
+
+func _force_anim_state(new_state: AnimState) -> void:
+	if not playback:
+		return
+	
+	var state_name = _anim_state_to_string(new_state)
+	playback.travel(state_name)
+	current_anim_state = new_state
+
+func _anim_state_to_string(state: AnimState) -> String:
+	match state:
+		AnimState.IDLE: return "idle"
+		AnimState.WALK: return "walk"
+		AnimState.RUN: return "run"
+		AnimState.JUMP: return "jump"
+		AnimState.WAVE: return "wave"
+		_: return "idle"
+
+func _string_to_anim_state(name: String) -> AnimState:
+	var normalized = name.to_lower()
+	match normalized:
+		"idle": return AnimState.IDLE
+		"walk": return AnimState.WALK
+		"run": return AnimState.RUN
+		"jump": return AnimState.JUMP
+		"wave": return AnimState.WAVE
+		_: return AnimState.IDLE
+
+func _clear_procedural_anim(action_name: String) -> void:
+	match action_name:
+		"spin":
+			proc_rot_y = 0.0
+		"flip":
+			proc_rot_x = 0.0
+	proc_anim_type = ProcAnimType.NONE
+
 func _switch_anim(anim_name: String) -> void:
-	# 动作名称映射：将 LLM 可能发送的别名映射到内部程序化名称
-	var normalized_name = anim_name.to_lower()
-	# 支持多种可能的输入形式
-	if normalized_name == "backflip" or normalized_name == "flip":
-		normalized_name = "flip"
-	if normalized_name == "shiver" or normalized_name == "shake":
-		normalized_name = "shake"
+	# 动作名称映射和规范化
+	var normalized_name = _normalize_action_name(anim_name)
 	
 	# 检查是否是程序化动画
-	var proc_anims = ["wave", "spin", "bounce", "fly", "roll", "shake", "flip"]
-	if normalized_name in proc_anims:
-		proc_anim_active = normalized_name
-		# 重置 flip 旋转角度（动作切换时）
-		if normalized_name == "flip":
+	if _is_procedural_anim(normalized_name):
+		_set_procedural_anim(normalized_name)
+		return
+	
+	# 切换回常规动画
+	_clear_procedural_anim_state()
+	
+	# 转换为枚举并切换
+	var target_state = _string_to_anim_state(normalized_name)
+	_set_anim_state(target_state, current_anim_state == AnimState.JUMP)
+
+func _normalize_action_name(name: String) -> String:
+	var normalized = name.to_lower()
+	match normalized:
+		"backflip", "flip": return "flip"
+		"shiver", "shake": return "shake"
+		_: return normalized
+
+func _is_procedural_anim(name: String) -> bool:
+	return name in ["wave", "spin", "bounce", "fly", "roll", "shake", "flip"]
+
+func _set_procedural_anim(name: String) -> void:
+	match name:
+		"flip":
+			proc_anim_type = ProcAnimType.FLIP
 			proc_rot_x = 0.0
-		# 即使是程序化动画，也尝试播放 idle 以确保基础姿态
-		if playback: playback.travel("idle")
-		last_anim_state = normalized_name
-		print("[Pet] Switched to procedural animation: %s" % normalized_name)
-		return
+		"spin":
+			proc_anim_type = ProcAnimType.SPIN
+			proc_rot_y = 0.0
+		"wave":
+			proc_anim_type = ProcAnimType.WAVE
+		"bounce":
+			proc_anim_type = ProcAnimType.BOUNCE
+		"fly":
+			proc_anim_type = ProcAnimType.FLY
+		"roll":
+			proc_anim_type = ProcAnimType.ROLL
+		"shake":
+			proc_anim_type = ProcAnimType.SHAKE
 	
-	# 切换回常规动画时，关闭程序化动画并重置旋转累计值
-	if proc_anim_active == "spin":
-		proc_rot_y = 0.0
-	if proc_anim_active == "flip":
-		proc_rot_x = 0.0
-	proc_anim_active = ""
-	
-	if last_anim_state == normalized_name and normalized_name != "jump":
-		return
 	if playback:
-		playback.travel(normalized_name)
-		last_anim_state = normalized_name
+		playback.travel("idle")  # 程序化动画时保持基础姿态
+	print("[Pet] Switched to procedural animation: %s" % name)
+
+func _clear_procedural_anim_state() -> void:
+	if proc_anim_type == ProcAnimType.SPIN:
+		proc_rot_y = 0.0
+	if proc_anim_type == ProcAnimType.FLIP:
+		proc_rot_x = 0.0
+	proc_anim_type = ProcAnimType.NONE
 
 func _send_interaction(action: String, extra_data: Variant) -> void:
 	if ws_client and ws_client.is_connected:
@@ -451,7 +619,7 @@ func _send_state_sync() -> void:
 		
 		ws_client.send_message("state_sync", {
 			"position": [global_position.x, global_position.y, global_position.z],
-			"current_action": last_anim_state,
+			"current_action": _anim_state_to_string(current_anim_state),
 			"is_dragging": is_dragging,
 			"is_on_floor": is_on_floor(),
 			"is_moving_locally": is_moving_locally,

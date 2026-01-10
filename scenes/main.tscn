@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3 uid="uid://main_scene_id"]
+[gd_scene load_steps=16 format=3 uid="uid://main_scene_id"]
 
 [ext_resource type="PackedScene" uid="uid://pet_root_id" path="res://scenes/pet.tscn" id="1_pet"]
 [ext_resource type="Script" path="res://scripts/websocket_client.gd" id="2_ws"]
@@ -6,6 +6,18 @@
 [ext_resource type="Script" path="res://scripts/ui_controller.gd" id="4_ui"]
 [ext_resource type="Shader" path="res://assets/environment/stage/skybox.gdshader" id="5_sky"]
 [ext_resource type="CompressedCubemap" uid="uid://bnqdokul6s4pt" path="res://assets/environment/stage/skybox.webp" id="6_tex"]
+[ext_resource type="Material" uid="uid://dqqlrr5i2rr4t" path="res://assets/environment/stage/tile_material.tres" id="7_tile_mat"]
+[ext_resource type="Texture2D" uid="uid://dseoc70n3l2f6" path="res://assets/environment/stage/tiles_albedo.webp" id="8_albedo"]
+[ext_resource type="Texture2D" uid="uid://85x6dubgd46o" path="res://assets/environment/stage/tiles_rough.webp" id="9_rough"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grass"]
+albedo_color = Color(0.35, 0.65, 0.3, 1)
+albedo_texture = ExtResource("8_albedo")
+roughness_texture = ExtResource("9_rough")
+texture_filter = 4
+uv1_scale = Vector3(25, 25, 1)
+metallic = 0.0
+roughness = 0.9
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_1"]
 shader = ExtResource("5_sky")
@@ -18,16 +30,28 @@ sky_material = SubResource("ShaderMaterial_1")
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 2
 sky = SubResource("Sky_1")
-tonemap_mode = 2
+ambient_light_source = 2
+ambient_light_color = Color(0.5, 0.5, 0.5, 1)
+ambient_light_sky_contribution = 0.3
+tonemap_mode = 4
 glow_enabled = true
+glow_blend_mode = 2
+glow_intensity = 0.8
 fog_enabled = true
-fog_light_color = Color(0.1, 0.12, 0.18, 1)
-fog_density = 0.02
+fog_light_color = Color(0.4, 0.45, 0.5, 1)
+fog_sun_color = Color(1, 0.95, 0.8, 1)
+fog_density = 0.01
+fog_aerial_perspective = 0.5
+fog_sky_affect = 0.5
+ssao_enabled = true
+ssao_radius = 1.0
+ssao_intensity = 2.0
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
-albedo_color = Color(0.12, 0.15, 0.2, 1)
-roughness = 0.7
-metallic = 0.1
+[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
+size = Vector2(100, 100)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_floor"]
+size = Vector3(100, 0.1, 100)
 
 [sub_resource type="WorldBoundaryShape3D" id="WorldBoundaryShape3D_1"]
 
@@ -51,25 +75,30 @@ environment = SubResource("Environment_1")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(-0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, 0.75, -0.433013, 0, 10, 0)
-light_energy = 1.2
+light_color = Color(1, 0.98, 0.9, 1)
+light_energy = 1.5
 shadow_enabled = true
 shadow_bias = 0.04
+shadow_normal_bias = 1.5
+directional_shadow_mode = 1
+directional_shadow_max_distance = 100.0
+directional_shadow_fade_start = 0.8
 
 [node name="Floor" type="StaticBody3D" parent="."]
 
-[node name="MeshInstance3D" type="CSGPlane3D" parent="Floor"]
-size = Vector2(100, 100)
-material = SubResource("StandardMaterial3D_floor")
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
+material_override = SubResource("StandardMaterial3D_grass")
+mesh = SubResource("PlaneMesh_floor")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
-shape = SubResource("WorldBoundaryShape3D_1")
+shape = SubResource("BoxShape3D_floor")
 
 [node name="StageDecor" type="Node3D" parent="."]
 [node name="Platform1" type="CSGBox3D" parent="StageDecor"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, -8)
 use_collision = true
 size = Vector3(10, 0.5, 4)
-material = SubResource("StandardMaterial3D_floor")
+material = SubResource("StandardMaterial3D_grass")
 
 [node name="PhysicsTest" type="Node3D" parent="."]
 
@@ -78,7 +107,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, 0, 5)
 use_collision = true
 polygon = PackedVector2Array(0, 0, 5, 2, 5, 0)
 depth = 4.0
-material = SubResource("StandardMaterial3D_floor")
+material = ExtResource("7_tile_mat")
 
 [node name="Basin" type="CSGCombiner3D" parent="PhysicsTest"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 5)
@@ -87,13 +116,13 @@ use_collision = true
 [node name="Base" type="CSGBox3D" parent="PhysicsTest/Basin"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
 size = Vector3(6, 0.2, 6)
-material = SubResource("StandardMaterial3D_floor")
+material = ExtResource("7_tile_mat")
 
 [node name="Bottom" type="CSGCylinder3D" parent="PhysicsTest/Basin"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
 radius = 2.5
 height = 0.1
-material = SubResource("StandardMaterial3D_floor")
+material = ExtResource("7_tile_mat")
 
 [node name="Hole" type="CSGSphere3D" parent="PhysicsTest/Basin"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
@@ -101,7 +130,7 @@ operation = 2
 radius = 2.0
 radial_segments = 32
 rings = 16
-material = SubResource("StandardMaterial3D_floor")
+material = ExtResource("7_tile_mat")
 
 [node name="Ball" type="RigidBody3D" parent="PhysicsTest"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 5, 5)
@@ -120,14 +149,21 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0.4, -10)
 use_collision = true
 radius = 1.2
 height = 0.8
-material = SubResource("StandardMaterial3D_floor")
+material = ExtResource("7_tile_mat")
 
 [node name="Column2" type="CSGCylinder3D" parent="StageDecor"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.4, -10)
 use_collision = true
 radius = 1.2
 height = 0.8
-material = SubResource("StandardMaterial3D_floor")
+material = ExtResource("7_tile_mat")
+
+[node name="AmbientLight" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 0)
+light_color = Color(0.9, 0.95, 1, 1)
+light_energy = 0.4
+omni_range = 50.0
+light_indirect_energy = 1.2
 
 [node name="Pet" parent="." instance=ExtResource("1_pet")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)

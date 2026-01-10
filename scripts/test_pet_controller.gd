@@ -1,4 +1,4 @@
-extends GutTest
+extends "res://addons/gut/test.gd"
 
 ## PetController 测试
 ## 测试宠物控制器的状态同步、输入处理等功能
