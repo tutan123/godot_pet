@@ -142,6 +142,8 @@ func _physics_process(delta: float) -> void:
 				last_floor_collider = floor_name
 
 	physics_module.handle_collisions(self)
+	# 关键修复：应用物理推力（让机器人能推动 RigidBody3D 物体，如球）
+	physics_module.handle_physics_push(self)
 	
 	# 马尔可夫性：只有在没有重要服务器动作且在地面时，才允许本地 locomotion 状态切换
 	if not is_doing_important_action and is_on_floor() and movement_data.target_anim_state != current_anim_state:

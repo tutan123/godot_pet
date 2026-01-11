@@ -20,7 +20,7 @@ var ws_client: Node
 var current_action_state: Dictionary = {}
 var action_lock_time: float = 0.0
 var sync_timer: float = 0.0
-var sync_interval: float = 1.0
+var sync_interval: float = 0.05 # 提升到 20Hz (50ms)
 
 ## 处理 WebSocket 消息
 func handle_ws_message(type: String, data: Dictionary, animation_tree: AnimationTree) -> void:

@@ -40,6 +40,7 @@ func handle_input_event(event: InputEvent, character_body: CharacterBody3D, mesh
 					on_drag_finished(mesh_root, proc_anim_type)
 				elif click_start_time > 0 and duration < max_click_duration and mouse_move < drag_threshold:
 					clicked.emit()
+					interaction_sent.emit("click", {"position": [character_body.global_position.x, character_body.global_position.y, character_body.global_position.z]})
 					on_clicked(mesh_root)
 				
 				click_start_time = 0
