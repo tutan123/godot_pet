@@ -73,6 +73,10 @@ func _ready() -> void:
 	messaging_module.dynamic_scene_received.connect(_on_dynamic_scene_received)
 	
 	if animation_tree: animation_tree.active = true
+	
+	# 启用鼠标交互（拖拽功能需要）
+	input_ray_pickable = true
+	
 	_log("[System] Robot Initialized and Ready.")
 
 func _physics_process(delta: float) -> void:
@@ -137,6 +141,11 @@ func _physics_process(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	animation_module.apply_procedural_fx(delta, interaction_module.is_dragging)
+
+func _input_event(_camera: Camera3D, event: InputEvent, _position: Vector3, _normal: Vector3, _shape_idx: int) -> void:
+	# 将输入事件传递给交互模块处理（拖拽和点击）
+	if interaction_module:
+		interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
 
 func _on_ws_message(type: String, data: Dictionary) -> void:
 	messaging_module.handle_ws_message(type, data, animation_tree)
