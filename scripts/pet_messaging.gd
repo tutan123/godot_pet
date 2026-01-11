@@ -1,0 +1,166 @@
+extends Node
+
+## pet_messaging.gd
+## 消息处理模块：负责 WebSocket 消息的发送和接收处理
+
+const PetData = preload("res://scripts/pet_data.gd")
+
+## 信号定义
+signal action_state_applied(action_state: Dictionary)
+signal status_updated(status_data: Dictionary)
+signal move_to_received(target: Vector3)
+signal position_set_received(pos: Vector3)
+
+## 节点引用（通过主控制器传递）
+var ws_client: Node
+
+## 状态变量（通过主控制器传递）
+var current_action_state: Dictionary = {}
+var action_lock_time: float = 0.0
+var sync_timer: float = 0.0
+var sync_interval: float = 1.0
+
+## 处理 WebSocket 消息
+func handle_ws_message(type: String, data: Dictionary, animation_tree: AnimationTree) -> void:
+	match type:
+		"bt_output":
+			if data.has("actionState"):
+				var action_state = data["actionState"]
+				apply_action_state(action_state, animation_tree)
+			elif data.has("action"):
+				var action_name = data["action"].to_lower()
+				apply_action_state({
+					"name": action_name,
+					"priority": 50,
+					"duration": 3000,
+					"interruptible": true,
+					"timestamp": Time.get_unix_time_from_system()
+				}, animation_tree)
+		"status_update":
+			if animation_tree:
+				if data.has("energy"):
+					var energy_normalized = data["energy"] / 100.0
+					animation_tree.set("parameters/energy_blend/blend_position", energy_normalized)
+				if data.has("boredom"):
+					var boredom_normalized = data["boredom"] / 100.0
+					animation_tree.set("parameters/boredom_blend/blend_position", boredom_normalized)
+			status_updated.emit(data)
+		"move_to":
+			if data.has("target"):
+				var t = data["target"]
+				move_to_received.emit(Vector3(t[0], t[1], t[2]))
+		"set_position":
+			if data.has("pos"):
+				var p = data["pos"]
+				position_set_received.emit(Vector3(p[0], p[1], p[2]))
+
+## 应用动作状态
+func apply_action_state(action_state: Dictionary, animation_tree: AnimationTree) -> void:
+	var action_name = action_state.get("name", "idle").to_lower()
+	var priority = action_state.get("priority", 50)
+	var duration_ms = action_state.get("duration", 3000)
+	var interruptible = action_state.get("interruptible", true)
+	var timestamp = action_state.get("timestamp", Time.get_unix_time_from_system())
+	
+	# 检查优先级和中断规则
+	var current_priority = current_action_state.get("priority", 0)
+	var current_duration = current_action_state.get("duration", 0)
+	var current_start_time = current_action_state.get("start_time", 0.0)
+	var current_interruptible = current_action_state.get("interruptible", true)
+	var elapsed = (Time.get_unix_time_from_system() - current_start_time) * 1000.0
+	
+	# 判断是否应该中断当前动作
+	var should_interrupt = false
+	if current_action_state.is_empty():
+		should_interrupt = true
+	elif priority > current_priority:
+		should_interrupt = true
+	elif interruptible and current_interruptible:
+		if priority >= current_priority:
+			should_interrupt = true
+	elif elapsed >= current_duration:
+		should_interrupt = true
+	
+	if should_interrupt:
+		current_action_state = {
+			"name": action_name,
+			"priority": priority,
+			"duration": duration_ms,
+			"interruptible": interruptible,
+			"start_time": Time.get_unix_time_from_system(),
+			"timestamp": timestamp
+		}
+		
+		# 核心修复：如果是基础移动动作（idle/walk/run），不应用硬锁定
+		if action_name == "walk" or action_name == "run" or action_name == "idle":
+			action_lock_time = 0.0
+			current_action_state = {}
+		else:
+			action_lock_time = Time.get_unix_time_from_system() + (duration_ms / 1000.0)
+		
+		# 使用 BlendTree 参数驱动
+		if animation_tree and action_state.has("speed"):
+			var speed_normalized = action_state.get("speed", 0.5)
+			animation_tree.set("parameters/locomotion/blend_position", speed_normalized)
+		
+		action_state_applied.emit(current_action_state)
+
+## 更新动作状态过期检查
+func update_action_state_expiry() -> void:
+	if current_action_state.is_empty():
+		return
+	
+	var elapsed = (Time.get_unix_time_from_system() - current_action_state.get("start_time", 0.0)) * 1000.0
+	var duration = current_action_state.get("duration", 3000)
+	
+	if elapsed >= duration:
+		var action_name = current_action_state.get("name", "idle")
+		current_action_state = {}
+		action_lock_time = 0.0
+
+## 发送交互消息
+func send_interaction(action: String, extra_data: Variant, character_position: Vector3) -> void:
+	if not ws_client or not ws_client.is_connected:
+		return
+	
+	var data = {
+		"action": action,
+		"position": [character_position.x, character_position.y, character_position.z]
+	}
+	
+	if extra_data is Vector3:
+		# extra_data 是 Vector3，但我们已经有了 character_position
+		pass
+	elif extra_data is Dictionary:
+		for key in extra_data.keys():
+			data[key] = extra_data[key]
+	
+	ws_client.send_message("interaction", data)
+
+## 发送状态同步
+func send_state_sync(character_body: CharacterBody3D, current_anim_state: int, is_dragging: bool, anim_state_to_string_func: Callable) -> void:
+	if not ws_client or not ws_client.is_connected:
+		return
+	
+	var focus_owner = get_viewport().gui_get_focus_owner()
+	var is_typing = focus_owner is LineEdit
+	var input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var is_moving_locally = input_dir.length() > 0.1 and not is_typing
+	var is_jump_pressed = Input.is_action_pressed("jump") and not is_typing
+	
+	ws_client.send_message("state_sync", {
+		"position": [character_body.global_position.x, character_body.global_position.y, character_body.global_position.z],
+		"current_action": anim_state_to_string_func.call(current_anim_state),
+		"is_dragging": is_dragging,
+		"is_on_floor": character_body.is_on_floor(),
+		"is_moving_locally": is_moving_locally,
+		"is_jump_pressed": is_jump_pressed,
+		"velocity": [character_body.velocity.x, character_body.velocity.y, character_body.velocity.z]
+	})
+
+## 更新状态同步定时器
+func update_state_sync(delta: float, character_body: CharacterBody3D, current_anim_state: int, is_dragging: bool, anim_state_to_string_func: Callable) -> void:
+	sync_timer += delta
+	if sync_timer >= sync_interval:
+		send_state_sync(character_body, current_anim_state, is_dragging, anim_state_to_string_func)
+		sync_timer = 0.0
