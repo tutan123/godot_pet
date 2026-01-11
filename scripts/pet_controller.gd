@@ -66,6 +66,16 @@ func _ready() -> void:
 	physics_module.jump_triggered.connect(_on_jump_triggered)
 	physics_module.collision_detected.connect(_on_collision_detected)
 	animation_module.anim_state_changed.connect(_on_anim_state_changed)
+	animation_module.procedural_anim_finished.connect(_on_procedural_finished)
+	
+	# 关键修复：连接交互模块信号
+	interaction_module.interaction_sent.connect(func(action, data): 
+		messaging_module.send_interaction(action, data, global_position)
+	)
+	interaction_module.drag_started.connect(func(): _log("[Action] Drag Started"))
+	interaction_module.drag_finished.connect(func(): _log("[Action] Drag Finished"))
+	interaction_module.clicked.connect(func(): _log("[Action] Clicked"))
+	
 	messaging_module.action_state_applied.connect(_on_action_state_applied)
 	messaging_module.move_to_received.connect(_on_move_to_received)
 	messaging_module.position_set_received.connect(_on_position_set_received)
@@ -96,8 +106,8 @@ func _physics_process(delta: float) -> void:
 	if is_executing_scene: return
 
 	# 马尔可夫性修复：基于当前状态决定是否允许本地 locomotion
-	# 如果当前有服务器动作状态（非空），说明正在执行服务器指令，让路
-	var has_server_action = not messaging_module.current_action_state.is_empty()
+	# 如果当前有服务器动作状态且不是基础移动，说明正在执行重要指令，让路
+	var is_doing_important_action = not messaging_module.current_action_state.is_empty() and not messaging_module.current_action_state.get("is_locomotion", false)
 	
 	var input_data = input_module.get_input_data()
 	physics_module.target_position = target_position
@@ -113,8 +123,8 @@ func _physics_process(delta: float) -> void:
 		physics_module.apply_physics(movement_data, self, delta)
 		physics_module.apply_movement(movement_data, self, delta)
 		
-		# 只有在没有服务器动作时才允许本地跳跃
-		if not has_server_action and physics_module.handle_jump(input_data, self):
+		# 只有在没有重要服务器动作时才允许本地跳跃
+		if not is_doing_important_action and physics_module.handle_jump(input_data, self):
 			animation_module.set_anim_state(PetData.AnimState.JUMP)
 	
 	move_and_slide()
@@ -133,8 +143,8 @@ func _physics_process(delta: float) -> void:
 
 	physics_module.handle_collisions(self)
 	
-	# 马尔可夫性：只有在没有服务器动作且在地面时，才允许本地 locomotion 状态切换
-	if not has_server_action and is_on_floor() and movement_data.target_anim_state != current_anim_state:
+	# 马尔可夫性：只有在没有重要服务器动作且在地面时，才允许本地 locomotion 状态切换
+	if not is_doing_important_action and is_on_floor() and movement_data.target_anim_state != current_anim_state:
 		_log("[Anim] State Change: %s -> %s" % [_anim_state_to_string(current_anim_state), _anim_state_to_string(movement_data.target_anim_state)])
 		animation_module.set_anim_state(movement_data.target_anim_state)
 		current_anim_state = movement_data.target_anim_state
@@ -143,9 +153,16 @@ func _process(delta: float) -> void:
 	animation_module.apply_procedural_fx(delta, interaction_module.is_dragging)
 
 func _input_event(_camera: Camera3D, event: InputEvent, _position: Vector3, _normal: Vector3, _shape_idx: int) -> void:
-	# 将输入事件传递给交互模块处理（拖拽和点击）
+	# 将输入事件传递给交互模块处理
 	if interaction_module:
 		interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
+
+func _input(event: InputEvent) -> void:
+	# 核心修复：当拖拽开始后，如果鼠标移出宠物范围，_input_event 就不再触发
+	# 我们需要在全局 _input 中补捕获鼠标释放，确保拖拽能正常结束
+	if interaction_module and interaction_module.is_dragging:
+		if event is InputEventMouseButton and not event.pressed:
+			interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
 
 func _on_ws_message(type: String, data: Dictionary) -> void:
 	messaging_module.handle_ws_message(type, data, animation_tree)
@@ -159,6 +176,11 @@ func _on_collision_detected(data):
 	messaging_module.send_interaction("collision", data, global_position)
 
 func _on_anim_state_changed(_o, n): current_anim_state = n
+
+func _on_procedural_finished(_name):
+	# 当动画模块说播完了，我们才真正清除服务器动作状态（马尔可夫状态转移点）
+	messaging_module.current_action_state = {}
+	_log("[Action] Procedural Finished: %s" % _name)
 
 func _on_action_state_applied(state):
 	if is_executing_scene: return

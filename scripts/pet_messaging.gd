@@ -106,30 +106,28 @@ func apply_action_state(action_state: Dictionary, animation_tree: AnimationTree)
 			"timestamp": timestamp
 		}
 		
-		# 基础移动动作：直接设置 BlendTree 参数，不发出信号
-		if action_name == "walk" or action_name == "run" or action_name == "idle":
+		# 基础移动动作：标记为 locomotion，不清除状态以保留语义
+		current_action_state = {
+			"name": action_name,
+			"priority": priority,
+			"is_locomotion": action_name in ["walk", "run", "idle"],
+			"start_time": Time.get_unix_time_from_system()
+		}
+		
+		if current_action_state.is_locomotion:
 			action_lock_time = 0.0
-			current_action_state = {}  # 清空，表示无锁定动作
 			if animation_tree and action_state.has("speed"):
 				var speed_normalized = action_state.get("speed", 0.5)
 				animation_tree.set("parameters/locomotion/blend_position", speed_normalized)
 		else:
-			# 非基础移动动作：立即发出信号，让动画模块处理
-			# 不设置 action_lock_time，让状态转换基于当前状态立即生效（马尔可夫性）
+			# 非基础移动动作：立即发出信号
 			action_lock_time = 0.0
 			action_state_applied.emit(current_action_state)
 
 ## 更新动作状态过期检查
 func update_action_state_expiry() -> void:
-	if current_action_state.is_empty():
-		return
-	
-	var elapsed = (Time.get_unix_time_from_system() - current_action_state.get("start_time", 0.0)) * 1000.0
-	var duration = current_action_state.get("duration", 3000)
-	
-	if elapsed >= duration:
-		current_action_state = {}
-		action_lock_time = 0.0
+	# 废弃：现在由动画模块的信号驱动清除，避免双重计时冲突
+	pass
 
 ## 发送交互消息
 func send_interaction(action: String, extra_data: Variant, character_position: Vector3) -> void:

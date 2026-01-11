@@ -8,6 +8,7 @@ const PetData = preload("res://scripts/pet_data.gd")
 ## 信号定义
 signal anim_state_changed(old_state: int, new_state: int)
 signal procedural_anim_changed(anim_type: int)
+signal procedural_anim_finished(anim_name: String) # 新增：告知动作结束
 
 ## 节点引用（通过主控制器传递）
 var animation_tree: AnimationTree
@@ -161,10 +162,19 @@ func clear_procedural_anim_state() -> void:
 		proc_rot_x = 0.0
 	if proc_anim_type == PetData.ProcAnimType.FLY:
 		# FLY 动画结束时，通知主控制器恢复物理状态
-		if get_parent():
-			get_parent().is_flying = false
+		var parent = get_parent()
+		if parent and "is_flying" in parent:
+			parent.is_flying = false
+		procedural_anim_finished.emit("fly")
 	
+	var old_type = proc_anim_type
 	proc_anim_type = PetData.ProcAnimType.NONE
+	
+	# 如果是其他带时长的动作，也发送完成信号
+	if old_type == PetData.ProcAnimType.SPIN: procedural_anim_finished.emit("spin")
+	elif old_type == PetData.ProcAnimType.FLIP: procedural_anim_finished.emit("flip")
+	elif old_type == PetData.ProcAnimType.WAVE: procedural_anim_finished.emit("wave")
+	
 	procedural_anim_changed.emit(PetData.ProcAnimType.NONE)
 
 ## 应用程序化动画效果
