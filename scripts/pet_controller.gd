@@ -34,8 +34,6 @@ var is_executing_scene: bool = false
 var last_floor_collider: String = ""
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var current_anim_state: int = PetData.AnimState.IDLE
-var proc_anim_type: int = PetData.ProcAnimType.NONE
-var proc_time: float = 0.0
 var current_action_state: Dictionary = {}
 var use_high_freq_sync: bool = false
 var server_target_pos: Vector3
@@ -78,30 +76,47 @@ func _ready() -> void:
 	_log("[System] Robot Initialized and Ready.")
 
 func _physics_process(delta: float) -> void:
-	proc_time += delta
-	animation_module.update_state_vars(current_anim_state, proc_anim_type, proc_time, 0.0, 0.0, 0.0, 0.0, current_action_state)
+	# 动画模块现在内部管理计时器
+	animation_module.update_state_vars(current_anim_state, current_action_state)
+	
+	# 马尔可夫性：持续检查动作状态是否过期
+	messaging_module.update_action_state_expiry()
+	
 	messaging_module.update_state_sync(delta, self, current_anim_state, interaction_module.is_dragging, is_executing_scene, _anim_state_to_string)
 	
 	if interaction_module.is_dragging:
 		is_executing_scene = false
-		interaction_module.handle_dragging(delta, self, mesh_root, proc_time)
+		interaction_module.handle_dragging(delta, self, mesh_root, animation_module.proc_time)
 		return
 
 	if is_executing_scene: return
 
+	# 马尔可夫性修复：基于当前状态决定是否允许本地 locomotion
+	# 如果当前有服务器动作状态（非空），说明正在执行服务器指令，让路
+	var has_server_action = not messaging_module.current_action_state.is_empty()
+	
 	var input_data = input_module.get_input_data()
 	physics_module.target_position = target_position
 	physics_module.is_server_moving = is_server_moving
 	physics_module.is_flying = is_flying
 	var movement_data = physics_module.calculate_movement(input_data, global_position, delta)
 	
-	physics_module.apply_physics(movement_data, self, delta)
-	physics_module.apply_movement(movement_data, self, delta)
+	# 检查是否在执行程序化动画（如 FLY）
+	var is_procedural_active = animation_module.proc_anim_type != PetData.ProcAnimType.NONE
 	
-	if physics_module.handle_jump(input_data, self):
-		animation_module.set_anim_state(PetData.AnimState.JUMP)
+	# 如果是程序化动画（如 FLY），暂停物理引擎的 Y 轴重力，让程序化动画控制位置
+	if not is_procedural_active:
+		physics_module.apply_physics(movement_data, self, delta)
+		physics_module.apply_movement(movement_data, self, delta)
+		
+		# 只有在没有服务器动作时才允许本地跳跃
+		if not has_server_action and physics_module.handle_jump(input_data, self):
+			animation_module.set_anim_state(PetData.AnimState.JUMP)
 	
 	move_and_slide()
+	
+	# 程序化动画期间，物理引擎的 move_and_slide 可能覆盖了 mesh_root.position.y
+	# 我们需要在 _process 中确保程序化动画的位置正确应用
 	
 	# 地面检测 Log
 	if is_on_floor() and get_slide_collision_count() > 0:
@@ -114,8 +129,8 @@ func _physics_process(delta: float) -> void:
 
 	physics_module.handle_collisions(self)
 	
-	# 状态切换 Log
-	if is_on_floor() and movement_data.target_anim_state != current_anim_state:
+	# 马尔可夫性：只有在没有服务器动作且在地面时，才允许本地 locomotion 状态切换
+	if not has_server_action and is_on_floor() and movement_data.target_anim_state != current_anim_state:
 		_log("[Anim] State Change: %s -> %s" % [_anim_state_to_string(current_anim_state), _anim_state_to_string(movement_data.target_anim_state)])
 		animation_module.set_anim_state(movement_data.target_anim_state)
 		current_anim_state = movement_data.target_anim_state
@@ -141,7 +156,19 @@ func _on_action_state_applied(state):
 	if not state is Dictionary or state.is_empty() or not state.has("name"):
 		return
 	_log("[Server] Executing Action: %s" % state.name)
+	
+	# 马尔可夫性：立即应用动作，基于当前状态决定表现
+	# 不依赖时间锁定，让动画模块根据动作类型自行处理
 	animation_module.switch_anim(state.name)
+	
+	# 特殊动作的物理状态设置（基于当前动作类型，而非时间）
+	var action_name = state.name.to_lower()
+	if action_name == "fly":
+		is_flying = true
+		# 给一个初始向上的速度，让物理引擎配合程序化动画
+		velocity.y = 8.0
+		# 确保程序化动画能持续足够长时间
+		# 注意：proc_time 已经在 switch_anim 中重置为 0.0
 
 func _on_move_to_received(target): target_position = target; is_server_moving = true
 

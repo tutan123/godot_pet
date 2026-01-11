@@ -79,13 +79,13 @@ func apply_blendtree_state(state: int) -> void:
 			animation_tree.set("parameters/locomotion/blend_position", 0.0)
 			animation_tree.set("parameters/jump_blend/blend_amount", 0.0)
 
-## 切换动画
+## 切换动画（马尔可夫性：基于当前动作名称立即切换，无历史依赖）
 func switch_anim(anim_name: String) -> void:
 	var normalized_name = normalize_action_name(anim_name)
 	
 	# 检查是否是程序化动画
 	if is_procedural_anim(normalized_name):
-		# 核心修复：执行程序化动画前，不仅要设置状态，还要强制 AnimationTree 停止对相关骨骼的控制
+		# 马尔可夫性：立即设置程序化动画类型，基于当前动作名称
 		if animation_tree:
 			animation_tree.set("parameters/locomotion/blend_position", 0.0)
 			animation_tree.set("parameters/jump_blend/blend_amount", 0.0)
@@ -93,13 +93,15 @@ func switch_anim(anim_name: String) -> void:
 		apply_blendtree_state(PetData.AnimState.IDLE)
 		current_anim_state = PetData.AnimState.IDLE
 		
+		# 立即设置程序化动画类型（状态转换）
 		set_procedural_anim(normalized_name)
+		proc_time = 0.0  # 重置时间，让动画从0开始
 		return
 	
-	# 切换回常规动画
+	# 切换回常规动画：清除程序化状态
 	clear_procedural_anim_state()
 	
-	# 转换为枚举并切换
+	# 转换为枚举并立即切换（基于当前动作名称）
 	var target_state = string_to_anim_state(normalized_name)
 	set_anim_state(target_state, current_anim_state == PetData.AnimState.JUMP)
 
@@ -121,10 +123,12 @@ func set_procedural_anim(name: String) -> void:
 		"flip":
 			proc_anim_type = PetData.ProcAnimType.FLIP
 			proc_rot_x = 0.0
+			proc_time = 0.0  # 重置时间，让FLIP动画从0开始
 			# 核心修复：程序化期间暂时停用动画树，防止其强制重置骨骼坐标
 			if animation_tree: animation_tree.active = false
 		"wave":
 			proc_anim_type = PetData.ProcAnimType.WAVE
+			proc_time = 0.0  # 重置时间，让WAVE动画从0开始
 			if animation_tree: animation_tree.active = false
 		"spin":
 			proc_anim_type = PetData.ProcAnimType.SPIN
@@ -133,6 +137,7 @@ func set_procedural_anim(name: String) -> void:
 			proc_anim_type = PetData.ProcAnimType.BOUNCE
 		"fly":
 			proc_anim_type = PetData.ProcAnimType.FLY
+			proc_time = 0.0  # 确保时间重置，让动画从头开始
 		"roll":
 			proc_anim_type = PetData.ProcAnimType.ROLL
 		"shake":
@@ -154,6 +159,10 @@ func clear_procedural_anim_state() -> void:
 		proc_rot_y = 0.0
 	if proc_anim_type == PetData.ProcAnimType.FLIP:
 		proc_rot_x = 0.0
+	if proc_anim_type == PetData.ProcAnimType.FLY:
+		# FLY 动画结束时，通知主控制器恢复物理状态
+		if get_parent():
+			get_parent().is_flying = false
 	
 	proc_anim_type = PetData.ProcAnimType.NONE
 	procedural_anim_changed.emit(PetData.ProcAnimType.NONE)
@@ -189,32 +198,44 @@ func apply_procedural_fx(delta: float, is_dragging: bool) -> void:
 			target_pos_y = abs(sin(proc_time * 10.0)) * 0.5
 			target_scale_y = 0.3 * (1.0 - target_pos_y * 0.2)
 		PetData.ProcAnimType.FLY:
-			target_pos_y = 1.0 + sin(proc_time * 3.0) * 0.2
-			target_rot_x = 0.3
+			# FLY 动画：向上飞起并保持悬浮（持续时间更长）
+			var fly_duration = 3.0  # 飞行持续时间（秒）
+			if proc_time < fly_duration:
+				# 前 0.5 秒：快速上升
+				if proc_time < 0.5:
+					var t = proc_time / 0.5
+					target_pos_y = lerpf(0.0, 1.5, t * t)  # ease_out quadratic
+				else:
+					# 之后：悬浮并轻微上下摆动
+					var hover_height = 1.5
+					target_pos_y = hover_height + sin((proc_time - 0.5) * 2.0) * 0.2
+				target_rot_x = 0.3
+			else:
+				# 飞行时间结束，逐渐下降
+				var fall_t = (proc_time - fly_duration) / 0.5
+				if fall_t < 1.0:
+					target_pos_y = lerpf(1.5, 0.0, fall_t * fall_t)  # ease_in quadratic
+				else:
+					# 飞行完全结束，清除程序化动画状态（马尔可夫性：基于当前状态）
+					clear_procedural_anim_state()
 		PetData.ProcAnimType.ROLL:
 			target_rot_z += delta * 15.0
 		PetData.ProcAnimType.SHAKE:
 			mesh_root.position.x = sin(proc_time * 25.0) * 0.1
 			target_rot_z = sin(proc_time * 20.0) * 0.1
 		PetData.ProcAnimType.FLIP:
-			var action_start_time = current_action_state.get("start_time", 0.0)
-			if action_start_time > 0.0:
-				var flip_elapsed = Time.get_unix_time_from_system() - action_start_time
-				var flip_duration = current_action_state.get("duration", 2000) / 1000.0
-				var t = clamp(flip_elapsed / flip_duration, 0.0, 1.0)
-				var flip_speed = TAU / flip_duration
-				proc_rot_x = flip_elapsed * flip_speed
-				target_rot_x = proc_rot_x
-				var jump_height = 0.6 * (4.0 * t * (1.0 - t))
-				target_pos_y = jump_height
-				if t > 0.15 and t < 0.85:
-					target_rot_z = sin(flip_elapsed * 10.0) * 0.08
-				else:
-					target_rot_z = 0.0
+			# 修复：使用 proc_time 而不是 current_action_state，支持场景执行
+			var flip_duration = 2.0  # 固定2秒完成一次后空翻
+			var t = clamp(proc_time / flip_duration, 0.0, 1.0)
+			var flip_speed = TAU / flip_duration
+			proc_rot_x = proc_time * flip_speed
+			target_rot_x = proc_rot_x
+			var jump_height = 0.6 * (4.0 * t * (1.0 - t))
+			target_pos_y = jump_height
+			if t > 0.15 and t < 0.85:
+				target_rot_z = sin(proc_time * 10.0) * 0.08
 			else:
-				proc_rot_x = 0.0
-				target_pos_y = 0.0
-				target_rot_x = 0.0
+				target_rot_z = 0.0
 		PetData.ProcAnimType.DANCE:
 			target_rot_z = sin(proc_time * 8.0) * 0.2
 			target_pos_y = abs(sin(proc_time * 6.0)) * 0.3
@@ -277,15 +298,9 @@ func string_to_anim_state(name: String) -> int:
 		"wave": return PetData.AnimState.WAVE
 		_: return PetData.AnimState.IDLE
 
-## 更新状态值（供主控制器调用）
-func update_state_vars(anim_state: int, proc_type: int, proc_t: float, tilt: float, rot_y: float, rot_x: float, shake: float, action_state: Dictionary) -> void:
+## 更新状态值（简化版：不再接收外部计时器，保护局部马尔可夫性）
+func update_state_vars(anim_state: int, action_state: Dictionary) -> void:
 	current_anim_state = anim_state
-	proc_anim_type = proc_type
-	proc_time = proc_t
-	tilt_angle = tilt
-	proc_rot_y = rot_y
-	proc_rot_x = rot_x
-	shake_intensity = shake
 	current_action_state = action_state
 
 ## 获取状态值（供主控制器读取）

@@ -96,6 +96,7 @@ func apply_action_state(action_state: Dictionary, animation_tree: AnimationTree)
 		should_interrupt = true
 	
 	if should_interrupt:
+		# 马尔可夫性修复：直接更新当前状态，不依赖时间锁定
 		current_action_state = {
 			"name": action_name,
 			"priority": priority,
@@ -105,23 +106,17 @@ func apply_action_state(action_state: Dictionary, animation_tree: AnimationTree)
 			"timestamp": timestamp
 		}
 		
-		# 核心修复：如果是基础移动动作（idle/walk/run），不应用硬锁定
+		# 基础移动动作：直接设置 BlendTree 参数，不发出信号
 		if action_name == "walk" or action_name == "run" or action_name == "idle":
 			action_lock_time = 0.0
-			current_action_state = {}
-			# 对于基础移动动作，只通过 BlendTree 处理，不发出动作状态信号
+			current_action_state = {}  # 清空，表示无锁定动作
 			if animation_tree and action_state.has("speed"):
 				var speed_normalized = action_state.get("speed", 0.5)
 				animation_tree.set("parameters/locomotion/blend_position", speed_normalized)
 		else:
-			action_lock_time = Time.get_unix_time_from_system() + (duration_ms / 1000.0)
-			
-			# 使用 BlendTree 参数驱动（非基础移动动作）
-			if animation_tree and action_state.has("speed"):
-				var speed_normalized = action_state.get("speed", 0.5)
-				animation_tree.set("parameters/locomotion/blend_position", speed_normalized)
-			
-			# 只对非基础移动动作发出信号（current_action_state 不为空）
+			# 非基础移动动作：立即发出信号，让动画模块处理
+			# 不设置 action_lock_time，让状态转换基于当前状态立即生效（马尔可夫性）
+			action_lock_time = 0.0
 			action_state_applied.emit(current_action_state)
 
 ## 更新动作状态过期检查
@@ -138,7 +133,7 @@ func update_action_state_expiry() -> void:
 
 ## 发送交互消息
 func send_interaction(action: String, extra_data: Variant, character_position: Vector3) -> void:
-	if not ws_client or not ws_client.is_connected:
+	if not ws_client or not ws_client.is_connected_to_server():
 		return
 	
 	var data = {
@@ -154,7 +149,7 @@ func send_interaction(action: String, extra_data: Variant, character_position: V
 
 ## 发送状态同步
 func send_state_sync(character_body: CharacterBody3D, current_anim_state: int, is_dragging: bool, is_executing_scene: bool, anim_state_to_string_func: Callable) -> void:
-	if not ws_client or not ws_client.is_connected:
+	if not ws_client or not ws_client.is_connected_to_server():
 		return
 	
 	var focus_owner = get_viewport().gui_get_focus_owner()
