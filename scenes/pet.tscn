@@ -1,4 +1,4 @@
-[gd_scene load_steps=20 format=3 uid="uid://pet_root_id"]
+[gd_scene load_steps=12 format=3 uid="uid://pet_root_id"]
 
 [ext_resource type="Script" path="res://scripts/pet_controller.gd" id="1_script"]
 [ext_resource type="PackedScene" uid="uid://c3cve8nqyv2v4" path="res://assets/models/player/player.glb" id="2_model"]
@@ -19,71 +19,34 @@ animation = &"run"
 [sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_walk"]
 animation = &"walk"
 
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_walk"]
-xfade_time = 0.3
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_walk_idle"]
-xfade_time = 0.3
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_walk_run"]
-xfade_time = 0.3
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_run_walk"]
-xfade_time = 0.3
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_any_jump"]
-xfade_time = 0.1
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_jump_idle"]
-switch_mode = 0
-auto_advance = false
-xfade_time = 0.3
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_jump_walk"]
-switch_mode = 0
-auto_advance = false
-xfade_time = 0.3
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_jump_run"]
-switch_mode = 0
-auto_advance = false
-xfade_time = 0.3
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_start_idle"]
-advance_mode = 2
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_run"]
-xfade_time = 0.3
-
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_run_idle"]
-xfade_time = 0.3
-
 [sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_wave"]
 animation = &"wave"
 
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_wave"]
-xfade_time = 0.2
+[sub_resource type="AnimationNodeBlendSpace1D" id="AnimationNodeBlendSpace1D_locomotion"]
+blend_point_0/node = SubResource("AnimationNodeAnimation_idle")
+blend_point_0/pos = 0.0
+blend_point_1/node = SubResource("AnimationNodeAnimation_walk")
+blend_point_1/pos = 0.5
+blend_point_2/node = SubResource("AnimationNodeAnimation_run")
+blend_point_2/pos = 1.0
+min_space = 0.0
+max_space = 1.0
+snap = 0.1
 
-[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_wave_idle"]
-switch_mode = 2
-auto_advance = true
-xfade_time = 0.5
+[sub_resource type="AnimationNodeBlend2" id="AnimationNodeBlend2_jump"]
+blend_amount = 0.0
+sync = true
 
-[sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_root"]
-states/End/position = Vector2(899, 100)
-states/Start/position = Vector2(191, 100)
-states/idle/node = SubResource("AnimationNodeAnimation_idle")
-states/idle/position = Vector2(362, 100)
-states/jump/node = SubResource("AnimationNodeAnimation_jump")
-states/jump/position = Vector2(468, -13)
-states/run/node = SubResource("AnimationNodeAnimation_run")
-states/run/position = Vector2(568, -13)
-states/walk/node = SubResource("AnimationNodeAnimation_walk")
-states/walk/position = Vector2(568, 100)
-states/wave/node = SubResource("AnimationNodeAnimation_wave")
-states/wave/position = Vector2(362, -13)
-transitions = ["Start", "idle", SubResource("AnimationNodeStateMachineTransition_start_idle"), "idle", "walk", SubResource("AnimationNodeStateMachineTransition_idle_walk"), "idle", "run", SubResource("AnimationNodeStateMachineTransition_idle_run"), "idle", "wave", SubResource("AnimationNodeStateMachineTransition_idle_wave"), "walk", "idle", SubResource("AnimationNodeStateMachineTransition_walk_idle"), "walk", "run", SubResource("AnimationNodeStateMachineTransition_walk_run"), "run", "walk", SubResource("AnimationNodeStateMachineTransition_run_walk"), "run", "idle", SubResource("AnimationNodeStateMachineTransition_run_idle"), "wave", "idle", SubResource("AnimationNodeStateMachineTransition_wave_idle"), "idle", "jump", SubResource("AnimationNodeStateMachineTransition_any_jump"), "walk", "jump", SubResource("AnimationNodeStateMachineTransition_any_jump"), "run", "jump", SubResource("AnimationNodeStateMachineTransition_any_jump"), "wave", "jump", SubResource("AnimationNodeStateMachineTransition_any_jump"), "jump", "idle", SubResource("AnimationNodeStateMachineTransition_jump_idle"), "jump", "walk", SubResource("AnimationNodeStateMachineTransition_jump_walk"), "jump", "run", SubResource("AnimationNodeStateMachineTransition_jump_run")]
-graph_offset = Vector2(0, -60)
+[sub_resource type="AnimationNodeBlendTree" id="AnimationNodeBlendTree_root"]
+graph_offset = Vector2(-200, -100)
+nodes/output/position = Vector2(400, 0)
+nodes/locomotion/node = SubResource("AnimationNodeBlendSpace1D_locomotion")
+nodes/locomotion/position = Vector2(-200, 0)
+nodes/jump_anim/node = SubResource("AnimationNodeAnimation_jump")
+nodes/jump_anim/position = Vector2(0, -120)
+nodes/jump_blend/node = SubResource("AnimationNodeBlend2_jump")
+nodes/jump_blend/position = Vector2(200, 0)
+node_connections = [&"output", 0, &"jump_blend", &"jump_blend", 0, &"locomotion", &"jump_blend", 1, &"jump_anim"]
 
 [node name="Pet" type="CharacterBody3D"]
 script = ExtResource("1_script")
@@ -97,6 +60,8 @@ transform = Transform3D(0.3, 0, 0, 0, 0.3, 0, 0, 0, 0.3, 0, 0, 0)
 
 [node name="AnimationTree" type="AnimationTree" parent="."]
 root_node = NodePath("../Player")
-tree_root = SubResource("AnimationNodeStateMachine_root")
+tree_root = SubResource("AnimationNodeBlendTree_root")
 anim_player = NodePath("../Player/AnimationPlayer")
+parameters/locomotion/blend_position = 0.0
+parameters/jump_blend/blend_amount = 0.0
 active = true

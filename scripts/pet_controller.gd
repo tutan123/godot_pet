@@ -25,7 +25,6 @@ enum ProcAnimType {
 }
 
 @onready var animation_tree: AnimationTree = $AnimationTree
-@onready var playback: AnimationNodeStateMachinePlayback = animation_tree.get("parameters/playback")
 @onready var ws_client = get_node_or_null("/root/Main/WebSocketClient")
 @onready var mesh_root = $Player
 
@@ -80,7 +79,44 @@ func _ready() -> void:
 	if ws_client:
 		ws_client.message_received.connect(_on_ws_message)
 	
-	animation_tree.active = true
+	# 验证 AnimationTree 和动画资源
+	if animation_tree:
+		animation_tree.active = true
+		
+		# 检查 AnimationPlayer 是否存在
+		var anim_player_path = animation_tree.anim_player
+		if anim_player_path:
+			# 修正：AnimationTree 的路径是相对于它自己的
+			var player_node = animation_tree.get_node_or_null(anim_player_path)
+			if player_node and player_node is AnimationPlayer:
+				var anim_list = player_node.get_animation_list()
+				_log("[Pet] Available animations: %s" % str(anim_list))
+				for anim_name in ["idle", "walk", "run", "jump", "wave"]:
+					if anim_name in anim_list:
+						_log("[Pet] ✓ Animation '%s' found" % anim_name)
+					else:
+						_log("[Pet] ✗ Animation '%s' NOT found!" % anim_name)
+			else:
+				_log("[Pet] ERROR: AnimationPlayer not found at path: %s" % str(anim_player_path))
+		
+		# 检查参数是否存在 - 尝试直接访问参数
+		var test_param = "parameters/locomotion/blend_position"
+		var test_value = animation_tree.get(test_param)
+		if test_value != null:
+			_log("[Pet] ✓ Parameter '%s' exists = %s" % [test_param, test_value])
+		else:
+			_log("[Pet] ✗ Parameter '%s' does not exist or is null" % test_param)
+			_log("[Pet] WARNING: BlendTree parameter might not be configured correctly!")
+		
+		# 检查 BlendTree 的 tree_root
+		var tree_root = animation_tree.tree_root
+		if tree_root:
+			_log("[Pet] Tree root type: %s" % tree_root.get_class())
+		else:
+			_log("[Pet] ERROR: Tree root is null!")
+	else:
+		_log("[Pet] ERROR: AnimationTree is null!")
+	
 	input_ray_pickable = true
 
 func _input_event(camera: Camera3D, event: InputEvent, position: Vector3, normal: Vector3, shape_idx: int) -> void:
@@ -170,7 +206,8 @@ func _handle_dragging(delta: float) -> void:
 	if intersect_pos:
 		global_position = global_position.lerp(intersect_pos, 20.0 * delta)
 		velocity = Vector3.ZERO
-		_switch_anim("jump")
+		# 拖拽时使用 jump 动画（暂时使用 idle，等添加 jump 混合后恢复）
+		_set_anim_state(AnimState.JUMP)
 		# 拖拽时的程序化摆动
 		mesh_root.rotation.z = sin(proc_time * 10.0) * 0.2
 
@@ -405,8 +442,9 @@ func _apply_movement(movement_data: MovementData, delta: float) -> void:
 		velocity.x = movement_data.direction.x * movement_data.speed
 		velocity.z = movement_data.direction.z * movement_data.speed
 	else:
-		velocity.x = move_toward(velocity.x, 0, walk_speed * delta * 10)
-		velocity.z = move_toward(velocity.z, 0, walk_speed * delta * 10)
+		# 瞬间停止，去除物理惯性，实现“零延迟”响应
+		velocity.x = 0
+		velocity.z = 0
 	
 	# 朝向处理
 	if movement_data.direction.length() > 0.1:
@@ -421,9 +459,19 @@ func _apply_movement(movement_data: MovementData, delta: float) -> void:
 	# 倾斜角度平滑
 	tilt_angle = lerp(tilt_angle, movement_data.tilt_target, 5.0 * delta)
 	
-	# 动画状态切换
-	if current_action_state.is_empty():
-		_set_anim_state(movement_data.target_anim_state)
+	# 动画状态切换（瞬间响应模式）
+	# 核心修复：只有在地面上时，基础移动逻辑（Idle/Walk/Run）才能根据物理状态切换动画
+	# 在空中时，状态由 _handle_jump 和 _handle_landing_state_fix 维护
+	var is_locomotion_action = false
+	if not current_action_state.is_empty():
+		var action_name = current_action_state.get("name", "")
+		if action_name == "walk" or action_name == "run" or action_name == "idle":
+			is_locomotion_action = true
+			
+	if is_on_floor() and (current_action_state.is_empty() or is_locomotion_action):
+		if movement_data.target_anim_state != current_anim_state:
+			_log("[Pet-Logic] Local physics changed state: %s -> %s" % [_anim_state_to_string(current_anim_state), _anim_state_to_string(movement_data.target_anim_state)])
+			_set_anim_state(movement_data.target_anim_state)
 
 func _handle_jump(input_data: InputData) -> void:
 	if is_on_floor() and input_data.jump_just_pressed:
@@ -438,14 +486,24 @@ func _handle_jump(input_data: InputData) -> void:
 	last_jump_pressed = input_data.jump_pressed
 
 func _handle_landing_state_fix(input_data: InputData, movement_data: MovementData) -> void:
-	if not (is_on_floor() and playback):
+	# 核心修复：只有当角色在向下落（y速度 < 0）且踩到地时，才认为是真正落地
+	if not is_on_floor() or velocity.y > 0:
 		return
 	
-	var current_playing = playback.get_current_node()
-	var is_jump_state = current_playing == "jump" or current_anim_state == AnimState.JUMP
+	# 检查是否是跳跃状态
+	var is_jump_state = current_anim_state == AnimState.JUMP
+	
+	# 如果 BlendTree 中有 jump_blend 参数，也检查它（但当前已移除，所以暂时注释）
+	# if animation_tree:
+	# 	var jump_blend = animation_tree.get("parameters/jump_blend/blend_amount")
+	# 	if jump_blend != null:  # 检查是否为 null
+	# 		is_jump_state = is_jump_state or jump_blend > 0.5
 	
 	if is_jump_state:
-		# 落地后根据输入决定目标状态
+		# 落地后清除跳跃状态，根据输入决定目标状态
+		if animation_tree:
+			animation_tree.set("parameters/jump_blend/blend_amount", 0.0)
+		
 		var target_state: AnimState
 		if input_data.direction.length() > 0.1:
 			target_state = AnimState.RUN if input_data.is_running else AnimState.WALK
@@ -453,7 +511,7 @@ func _handle_landing_state_fix(input_data: InputData, movement_data: MovementDat
 			target_state = AnimState.IDLE
 		
 		_force_anim_state(target_state)
-		print("[Pet] Forced animation switch after landing: %s -> %s" % [current_playing, _anim_state_to_string(target_state)])
+		_log("[Pet] Forced animation switch after landing: jump -> %s" % _anim_state_to_string(target_state))
 	elif current_action_state.is_empty() and input_data.direction.length() < 0.1:
 		if current_anim_state != AnimState.IDLE:
 			_set_anim_state(AnimState.IDLE)
@@ -484,32 +542,73 @@ func _handle_physics_push() -> void:
 			push_dir.y = 0
 			collider.apply_central_impulse(push_dir * push_force)
 
-## 动画状态管理（重构后的优雅版本）
+## 动画状态管理（BlendTree 参数驱动版本）
 func _set_anim_state(new_state: AnimState, force: bool = false) -> void:
 	if not force and current_anim_state == new_state:
 		return
 	
-	if not playback:
+	if not animation_tree:
 		return
 	
-	var state_name = _anim_state_to_string(new_state)
 	var prev_state = current_anim_state
-	var current_playing = playback.get_current_node()
 	
-	# 强制切换（特别是从jump状态切换时）
-	playback.travel(state_name)
+	# 使用 BlendTree 参数驱动
+	_apply_blendtree_state(new_state)
 	current_anim_state = new_state
 	
 	if prev_state != new_state:
-		print("[Pet] Animation state: %s -> %s (was playing: %s)" % [_anim_state_to_string(prev_state), state_name, current_playing])
+		_log("[Pet] Animation state: %s -> %s" % [_anim_state_to_string(prev_state), _anim_state_to_string(new_state)])
 
 func _force_anim_state(new_state: AnimState) -> void:
-	if not playback:
+	if not animation_tree:
 		return
 	
-	var state_name = _anim_state_to_string(new_state)
-	playback.travel(state_name)
+	_apply_blendtree_state(new_state)
 	current_anim_state = new_state
+
+## 使用 BlendTree 参数驱动动画状态
+func _apply_blendtree_state(state: AnimState) -> void:
+	if not animation_tree:
+		return
+	
+	if not animation_tree.active:
+		animation_tree.active = true
+	
+	match state:
+		AnimState.IDLE:
+			# 瞬间切换到 Idle (0.0)
+			animation_tree.set("parameters/locomotion/blend_position", 0.0)
+			animation_tree.set("parameters/jump_blend/blend_amount", 0.0)
+			_log("[Pet-Anim] Immediate switch to IDLE")
+			
+		AnimState.WALK:
+			# 瞬间切换到 Walk (0.5)
+			animation_tree.set("parameters/locomotion/blend_position", 0.5)
+			animation_tree.set("parameters/jump_blend/blend_amount", 0.0)
+			_log("[Pet-Anim] Immediate switch to WALK")
+			
+		AnimState.RUN:
+			# 瞬间切换到 Run (1.0)
+			animation_tree.set("parameters/locomotion/blend_position", 1.0)
+			animation_tree.set("parameters/jump_blend/blend_amount", 0.0)
+			_log("[Pet-Anim] Immediate switch to RUN")
+			
+		AnimState.JUMP:
+			# 瞬间开启跳跃混合
+			animation_tree.set("parameters/jump_blend/blend_amount", 1.0)
+			_log("[Pet-Anim] Immediate switch to JUMP overlay")
+			
+		AnimState.WAVE:
+			# Wave 暂时使用 idle 作为基准
+			animation_tree.set("parameters/locomotion/blend_position", 0.0)
+			animation_tree.set("parameters/jump_blend/blend_amount", 0.0)
+			_log("[Pet-Anim] Immediate switch to WAVE (base idle)")
+
+func _log(msg: String) -> void:
+	var time_dict = Time.get_time_dict_from_system()
+	var unix_time = Time.get_unix_time_from_system()
+	var msec = int((unix_time - floor(unix_time)) * 1000)
+	print("[%02d:%02d:%02d.%03d] %s" % [time_dict.hour, time_dict.minute, time_dict.second, msec, msg])
 
 func _anim_state_to_string(state: AnimState) -> String:
 	match state:
@@ -574,6 +673,7 @@ func _set_procedural_anim(name: String) -> void:
 			proc_rot_y = 0.0
 		"wave":
 			proc_anim_type = ProcAnimType.WAVE
+			# Wave 作为程序化动画，保持 idle 基础姿态
 		"bounce":
 			proc_anim_type = ProcAnimType.BOUNCE
 		"fly":
@@ -583,9 +683,10 @@ func _set_procedural_anim(name: String) -> void:
 		"shake":
 			proc_anim_type = ProcAnimType.SHAKE
 	
-	if playback:
-		playback.travel("idle")  # 程序化动画时保持基础姿态
-	print("[Pet] Switched to procedural animation: %s" % name)
+	# 程序化动画时保持基础姿态（idle）
+	if animation_tree:
+		animation_tree.set("parameters/locomotion/blend_position", 0.0)
+	_log("[Pet] Switched to procedural animation: %s" % name)
 
 func _clear_procedural_anim_state() -> void:
 	if proc_anim_type == ProcAnimType.SPIN:
@@ -646,6 +747,15 @@ func _on_ws_message(type: String, data: Dictionary) -> void:
 					"interruptible": true,
 					"timestamp": Time.get_unix_time_from_system()
 				})
+		"status_update":
+			# 处理服务端状态更新（能量、情绪等连续值）
+			if animation_tree:
+				if data.has("energy"):
+					var energy_normalized = data["energy"] / 100.0  # 归一化到 0-1
+					animation_tree.set("parameters/energy_blend", energy_normalized)
+				if data.has("boredom"):
+					var boredom_normalized = data["boredom"] / 100.0
+					animation_tree.set("parameters/boredom_blend", boredom_normalized)
 		"move_to":
 			if data.has("target"):
 				var t = data["target"]
@@ -697,6 +807,20 @@ func _apply_action_state(action_state: Dictionary) -> void:
 			"start_time": Time.get_unix_time_from_system(),
 			"timestamp": timestamp
 		}
-		action_lock_time = Time.get_unix_time_from_system() + (duration_ms / 1000.0)
+		
+		# 核心修复：如果是基础移动动作（idle/walk/run），不应用硬锁定且清空状态记录
+		# 这样本地物理逻辑就不会因为检测到服务器动作而被阻塞
+		if action_name == "walk" or action_name == "run" or action_name == "idle":
+			action_lock_time = 0.0
+			current_action_state = {} # 清空字典，表示当前没有锁定的服务器动作
+		else:
+			action_lock_time = Time.get_unix_time_from_system() + (duration_ms / 1000.0)
+		
+		# 使用 BlendTree 参数驱动（如果支持速度、能量等参数）
+		if animation_tree and action_state.has("speed"):
+			# 如果服务端发送了速度参数，直接使用
+			var speed_normalized = action_state.get("speed", 0.5)
+			animation_tree.set("parameters/locomotion/blend_position", speed_normalized)
+		
 		_switch_anim(action_name)
-		print("[Pet] Applied action state: %s (priority: %d, duration: %dms, interruptible: %s)" % [action_name, priority, duration_ms, interruptible])
+		_log("[Pet] Applied action state: %s (priority: %d, duration: %dms, interruptible: %s)" % [action_name, priority, duration_ms, interruptible])
