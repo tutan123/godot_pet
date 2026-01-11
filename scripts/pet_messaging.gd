@@ -10,6 +10,8 @@ signal action_state_applied(action_state: Dictionary)
 signal status_updated(status_data: Dictionary)
 signal move_to_received(target: Vector3)
 signal position_set_received(pos: Vector3)
+signal scene_received(scene_name: String, data: Dictionary)
+signal dynamic_scene_received(steps: Array)
 
 ## 节点引用（通过主控制器传递）
 var ws_client: Node
@@ -27,23 +29,14 @@ func handle_ws_message(type: String, data: Dictionary, animation_tree: Animation
 			if data.has("actionState"):
 				var action_state = data["actionState"]
 				apply_action_state(action_state, animation_tree)
+			elif data.has("actions"): # 支持动作序列数组
+				var actions = data["actions"]
+				if actions is Array:
+					for act in actions:
+						_handle_single_action_data(act, animation_tree)
 			elif data.has("action"):
-				var action_name = data["action"].to_lower()
-				apply_action_state({
-					"name": action_name,
-					"priority": 50,
-					"duration": 3000,
-					"interruptible": true,
-					"timestamp": Time.get_unix_time_from_system()
-				}, animation_tree)
+				_handle_single_action_data(data["action"], animation_tree)
 		"status_update":
-			if animation_tree:
-				if data.has("energy"):
-					var energy_normalized = data["energy"] / 100.0
-					animation_tree.set("parameters/energy_blend/blend_position", energy_normalized)
-				if data.has("boredom"):
-					var boredom_normalized = data["boredom"] / 100.0
-					animation_tree.set("parameters/boredom_blend/blend_position", boredom_normalized)
 			status_updated.emit(data)
 		"move_to":
 			if data.has("target"):
@@ -53,6 +46,27 @@ func handle_ws_message(type: String, data: Dictionary, animation_tree: Animation
 			if data.has("pos"):
 				var p = data["pos"]
 				position_set_received.emit(Vector3(p[0], p[1], p[2]))
+		"scene_trigger":
+			if data.has("scene"):
+				scene_received.emit(data["scene"], data.get("data", {}))
+		"dynamic_scene":
+			if data.has("steps"):
+				dynamic_scene_received.emit(data["steps"])
+
+func _handle_single_action_data(action_data: Variant, animation_tree: AnimationTree) -> void:
+	var action_name = ""
+	if action_data is String:
+		action_name = action_data.to_lower()
+	elif action_data is Dictionary:
+		action_name = action_data.get("name", "idle").to_lower()
+	
+	apply_action_state({
+		"name": action_name,
+		"priority": 50,
+		"duration": 3000,
+		"interruptible": true,
+		"timestamp": Time.get_unix_time_from_system()
+	}, animation_tree)
 
 ## 应用动作状态
 func apply_action_state(action_state: Dictionary, animation_tree: AnimationTree) -> void:
@@ -95,15 +109,20 @@ func apply_action_state(action_state: Dictionary, animation_tree: AnimationTree)
 		if action_name == "walk" or action_name == "run" or action_name == "idle":
 			action_lock_time = 0.0
 			current_action_state = {}
+			# 对于基础移动动作，只通过 BlendTree 处理，不发出动作状态信号
+			if animation_tree and action_state.has("speed"):
+				var speed_normalized = action_state.get("speed", 0.5)
+				animation_tree.set("parameters/locomotion/blend_position", speed_normalized)
 		else:
 			action_lock_time = Time.get_unix_time_from_system() + (duration_ms / 1000.0)
-		
-		# 使用 BlendTree 参数驱动
-		if animation_tree and action_state.has("speed"):
-			var speed_normalized = action_state.get("speed", 0.5)
-			animation_tree.set("parameters/locomotion/blend_position", speed_normalized)
-		
-		action_state_applied.emit(current_action_state)
+			
+			# 使用 BlendTree 参数驱动（非基础移动动作）
+			if animation_tree and action_state.has("speed"):
+				var speed_normalized = action_state.get("speed", 0.5)
+				animation_tree.set("parameters/locomotion/blend_position", speed_normalized)
+			
+			# 只对非基础移动动作发出信号（current_action_state 不为空）
+			action_state_applied.emit(current_action_state)
 
 ## 更新动作状态过期检查
 func update_action_state_expiry() -> void:
@@ -114,7 +133,6 @@ func update_action_state_expiry() -> void:
 	var duration = current_action_state.get("duration", 3000)
 	
 	if elapsed >= duration:
-		var action_name = current_action_state.get("name", "idle")
 		current_action_state = {}
 		action_lock_time = 0.0
 
@@ -128,17 +146,14 @@ func send_interaction(action: String, extra_data: Variant, character_position: V
 		"position": [character_position.x, character_position.y, character_position.z]
 	}
 	
-	if extra_data is Vector3:
-		# extra_data 是 Vector3，但我们已经有了 character_position
-		pass
-	elif extra_data is Dictionary:
+	if extra_data is Dictionary:
 		for key in extra_data.keys():
 			data[key] = extra_data[key]
 	
 	ws_client.send_message("interaction", data)
 
 ## 发送状态同步
-func send_state_sync(character_body: CharacterBody3D, current_anim_state: int, is_dragging: bool, anim_state_to_string_func: Callable) -> void:
+func send_state_sync(character_body: CharacterBody3D, current_anim_state: int, is_dragging: bool, is_executing_scene: bool, anim_state_to_string_func: Callable) -> void:
 	if not ws_client or not ws_client.is_connected:
 		return
 	
@@ -152,6 +167,7 @@ func send_state_sync(character_body: CharacterBody3D, current_anim_state: int, i
 		"position": [character_body.global_position.x, character_body.global_position.y, character_body.global_position.z],
 		"current_action": anim_state_to_string_func.call(current_anim_state),
 		"is_dragging": is_dragging,
+		"is_executing_scene": is_executing_scene, # 重要：同步给大脑
 		"is_on_floor": character_body.is_on_floor(),
 		"is_moving_locally": is_moving_locally,
 		"is_jump_pressed": is_jump_pressed,
@@ -159,8 +175,8 @@ func send_state_sync(character_body: CharacterBody3D, current_anim_state: int, i
 	})
 
 ## 更新状态同步定时器
-func update_state_sync(delta: float, character_body: CharacterBody3D, current_anim_state: int, is_dragging: bool, anim_state_to_string_func: Callable) -> void:
+func update_state_sync(delta: float, character_body: CharacterBody3D, current_anim_state: int, is_dragging: bool, is_executing_scene: bool, anim_state_to_string_func: Callable) -> void:
 	sync_timer += delta
 	if sync_timer >= sync_interval:
-		send_state_sync(character_body, current_anim_state, is_dragging, anim_state_to_string_func)
+		send_state_sync(character_body, current_anim_state, is_dragging, is_executing_scene, anim_state_to_string_func)
 		sync_timer = 0.0

@@ -12,6 +12,7 @@ signal procedural_anim_changed(anim_type: int)
 ## 节点引用（通过主控制器传递）
 var animation_tree: AnimationTree
 var mesh_root: Node3D
+var skeleton: Skeleton3D  # 用于程序化骨骼动画
 
 ## 状态变量（通过主控制器传递）
 var current_anim_state: int = PetData.AnimState.IDLE
@@ -22,6 +23,12 @@ var proc_rot_y: float = 0.0
 var proc_rot_x: float = 0.0
 var shake_intensity: float = 0.0
 var current_action_state: Dictionary = {}
+
+## 骨骼动画相关变量
+var right_arm_bone_id: int = -1
+var right_forearm_bone_id: int = -1
+var right_arm_rest_transform: Transform3D
+var right_forearm_rest_transform: Transform3D
 
 ## 设置动画状态
 func set_anim_state(new_state: int, force: bool = false) -> void:
@@ -78,6 +85,14 @@ func switch_anim(anim_name: String) -> void:
 	
 	# 检查是否是程序化动画
 	if is_procedural_anim(normalized_name):
+		# 核心修复：执行程序化动画前，不仅要设置状态，还要强制 AnimationTree 停止对相关骨骼的控制
+		if animation_tree:
+			animation_tree.set("parameters/locomotion/blend_position", 0.0)
+			animation_tree.set("parameters/jump_blend/blend_amount", 0.0)
+		
+		apply_blendtree_state(PetData.AnimState.IDLE)
+		current_anim_state = PetData.AnimState.IDLE
+		
 		set_procedural_anim(normalized_name)
 		return
 	
@@ -106,11 +121,14 @@ func set_procedural_anim(name: String) -> void:
 		"flip":
 			proc_anim_type = PetData.ProcAnimType.FLIP
 			proc_rot_x = 0.0
+			# 核心修复：程序化期间暂时停用动画树，防止其强制重置骨骼坐标
+			if animation_tree: animation_tree.active = false
+		"wave":
+			proc_anim_type = PetData.ProcAnimType.WAVE
+			if animation_tree: animation_tree.active = false
 		"spin":
 			proc_anim_type = PetData.ProcAnimType.SPIN
 			proc_rot_y = 0.0
-		"wave":
-			proc_anim_type = PetData.ProcAnimType.WAVE
 		"bounce":
 			proc_anim_type = PetData.ProcAnimType.BOUNCE
 		"fly":
@@ -123,28 +141,20 @@ func set_procedural_anim(name: String) -> void:
 			proc_anim_type = PetData.ProcAnimType.DANCE
 			proc_rot_y = 0.0
 	
-	# 程序化动画时保持基础姿态（idle）
-	if animation_tree:
-		animation_tree.set("parameters/locomotion/blend_position", 0.0)
-	
 	procedural_anim_changed.emit(proc_anim_type)
-
-## 清除程序化动画
-func clear_procedural_anim(action_name: String) -> void:
-	match action_name:
-		"spin":
-			proc_rot_y = 0.0
-		"flip":
-			proc_rot_x = 0.0
-	proc_anim_type = PetData.ProcAnimType.NONE
-	procedural_anim_changed.emit(PetData.ProcAnimType.NONE)
 
 ## 清除程序化动画状态
 func clear_procedural_anim_state() -> void:
+	if proc_anim_type == PetData.ProcAnimType.WAVE or proc_anim_type == PetData.ProcAnimType.FLIP:
+		_reset_arm_to_rest()
+		# 恢复动画树控制
+		if animation_tree: animation_tree.active = true
+		
 	if proc_anim_type == PetData.ProcAnimType.SPIN or proc_anim_type == PetData.ProcAnimType.DANCE:
 		proc_rot_y = 0.0
 	if proc_anim_type == PetData.ProcAnimType.FLIP:
 		proc_rot_x = 0.0
+	
 	proc_anim_type = PetData.ProcAnimType.NONE
 	procedural_anim_changed.emit(PetData.ProcAnimType.NONE)
 
@@ -168,8 +178,11 @@ func apply_procedural_fx(delta: float, is_dragging: bool) -> void:
 	# B. 根据当前活跃的程序化动作计算目标值
 	match proc_anim_type:
 		PetData.ProcAnimType.WAVE:
+			# 整体摆动
 			target_rot_z = sin(proc_time * 15.0) * 0.15
 			target_scale_y = 0.3 * (1.0 + sin(proc_time * 10.0) * 0.05)
+			# 右手挥舞
+			_apply_arm_wave_animation(delta)
 		PetData.ProcAnimType.SPIN:
 			proc_rot_y += delta * 20.0
 		PetData.ProcAnimType.BOUNCE:
@@ -282,3 +295,55 @@ func get_state_vars() -> Dictionary:
 		"proc_rot_x": proc_rot_x,
 		"proc_anim_type": proc_anim_type
 	}
+
+## 初始化骨骼引用（供主控制器调用）
+func setup_skeleton(skeleton_node: Skeleton3D) -> void:
+	skeleton = skeleton_node
+	if not skeleton:
+		return
+	
+	# 查找右手骨骼ID
+	right_arm_bone_id = skeleton.find_bone("r-arm")
+	right_forearm_bone_id = skeleton.find_bone("r-forearm")
+	
+	if right_arm_bone_id >= 0:
+		right_arm_rest_transform = skeleton.get_bone_rest(right_arm_bone_id)
+	if right_forearm_bone_id >= 0:
+		right_forearm_rest_transform = skeleton.get_bone_rest(right_forearm_bone_id)
+
+## 应用右手挥舞动画
+func _apply_arm_wave_animation(_delta: float) -> void:
+	if not skeleton or right_arm_bone_id < 0:
+		return
+	
+	# 计算挥舞角度
+	var wave_angle = sin(proc_time * 8.0) * 1.2
+	var wave_forward = sin(proc_time * 8.0) * 0.3
+	
+	var rotation_transform = Transform3D()
+	rotation_transform = rotation_transform.rotated(Vector3(1, 0, 0), wave_angle)
+	rotation_transform = rotation_transform.rotated(Vector3(0, 0, 1), wave_forward * 0.5)
+	
+	var final_transform = right_arm_rest_transform * rotation_transform
+	skeleton.set_bone_pose_position(right_arm_bone_id, final_transform.origin)
+	skeleton.set_bone_pose_rotation(right_arm_bone_id, final_transform.basis.get_rotation_quaternion())
+	
+	if right_forearm_bone_id >= 0:
+		var forearm_rotation = Transform3D()
+		forearm_rotation = forearm_rotation.rotated(Vector3(1, 0, 0), wave_angle * 0.3)
+		var forearm_final = right_forearm_rest_transform * forearm_rotation
+		skeleton.set_bone_pose_position(right_forearm_bone_id, forearm_final.origin)
+		skeleton.set_bone_pose_rotation(right_forearm_bone_id, forearm_final.basis.get_rotation_quaternion())
+
+## 重置骨骼到休息姿态
+func _reset_arm_to_rest() -> void:
+	if not skeleton:
+		return
+	
+	if right_arm_bone_id >= 0:
+		skeleton.set_bone_pose_position(right_arm_bone_id, right_arm_rest_transform.origin)
+		skeleton.set_bone_pose_rotation(right_arm_bone_id, right_arm_rest_transform.basis.get_rotation_quaternion())
+	
+	if right_forearm_bone_id >= 0:
+		skeleton.set_bone_pose_position(right_forearm_bone_id, right_forearm_rest_transform.origin)
+		skeleton.set_bone_pose_rotation(right_forearm_bone_id, right_forearm_rest_transform.basis.get_rotation_quaternion())

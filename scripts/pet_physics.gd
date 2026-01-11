@@ -21,14 +21,15 @@ var gravity: float = 9.8
 ## 状态引用（通过主控制器传递）
 var target_position: Vector3
 var is_server_moving: bool = false
+var is_flying: bool = false  # 飞行模式：忽略 Y 轴约束
 var use_high_freq_sync: bool = false
 var server_target_pos: Vector3
 
 ## 计算移动数据
-func calculate_movement(input_data, current_position: Vector3, delta: float):
+func calculate_movement(input_data, current_position: Vector3, _delta: float):
 	var movement = PetData.MovementData.new()
 	
-	# 本地输入移动
+	# 1. 本地输入移动
 	if input_data.direction.length() > 0.1:
 		is_server_moving = false
 		use_high_freq_sync = false
@@ -43,35 +44,41 @@ func calculate_movement(input_data, current_position: Vector3, delta: float):
 		movement.target_anim_state = PetData.AnimState.RUN if movement.is_running else PetData.AnimState.WALK
 		movement.tilt_target = 0.2 if movement.is_running else 0.1
 		
-	# 服务端移动
+	# 2. 服务端指令移动
 	elif is_server_moving:
 		var to_target = (target_position - current_position)
-		to_target.y = 0
-		if to_target.length() > 0.25:
+		if not is_flying:
+			to_target.y = 0 # 走路模式忽略 Y 轴差异
+		
+		var dist = to_target.length()
+		if dist > 0.1:
 			movement.direction = to_target.normalized()
-			movement.speed = walk_speed
-			movement.target_anim_state = PetData.AnimState.WALK
-			movement.tilt_target = 0.1
+			movement.speed = walk_speed * 2.0 if is_flying else walk_speed
+			movement.target_anim_state = PetData.AnimState.JUMP if is_flying else PetData.AnimState.WALK
+			movement.tilt_target = 0.2 if is_flying else 0.1
 		else:
 			is_server_moving = false
+			is_flying = false
 			movement.target_anim_state = PetData.AnimState.IDLE
 			movement.tilt_target = 0.0
 			
-	# 高频同步（插值移动）
+	# 3. 高频同步（插值移动）
 	elif use_high_freq_sync:
-		# 注意：这个需要直接修改位置，由主控制器处理
 		movement.target_anim_state = PetData.AnimState.IDLE
 		movement.tilt_target = 0.0
 		
-	# 静止状态
+	# 4. 静止状态
 	else:
 		movement.target_anim_state = PetData.AnimState.IDLE
 		movement.tilt_target = 0.0
 	
 	return movement
 
-## 应用物理
+## 应用物理效果
 func apply_physics(movement_data, character_body: CharacterBody3D, delta: float) -> void:
+	if is_flying:
+		return # 飞行模式不受重力影响
+		
 	if not character_body.is_on_floor():
 		character_body.velocity.y -= gravity * delta
 	else:
@@ -84,33 +91,28 @@ func apply_physics(movement_data, character_body: CharacterBody3D, delta: float)
 		else:
 			character_body.velocity.y = -0.1
 
-## 应用移动
+## 应用移动速度
 func apply_movement(movement_data, character_body: CharacterBody3D, delta: float) -> float:
-	# 返回 tilt_angle 用于动画系统
-	if movement_data.direction.length() > 0.1:
+	if movement_data.direction.length() > 0.05:
 		character_body.velocity.x = movement_data.direction.x * movement_data.speed
 		character_body.velocity.z = movement_data.direction.z * movement_data.speed
+		if is_flying:
+			character_body.velocity.y = movement_data.direction.y * movement_data.speed
 	else:
-		# 瞬间停止，去除物理惯性，实现"零延迟"响应
 		character_body.velocity.x = 0
 		character_body.velocity.z = 0
+		if is_flying:
+			character_body.velocity.y = 0
 	
 	# 朝向处理
 	if movement_data.direction.length() > 0.1:
 		var target_rotation = atan2(movement_data.direction.x, movement_data.direction.z)
 		character_body.rotation.y = lerp_angle(character_body.rotation.y, target_rotation, rotation_speed * delta)
-	elif character_body.velocity.length() > 0.5:
-		var move_dir = Vector3(character_body.velocity.x, 0, character_body.velocity.z).normalized()
-		if move_dir.length() > 0.1:
-			var target_rotation = atan2(move_dir.x, move_dir.z)
-			character_body.rotation.y = lerp_angle(character_body.rotation.y, target_rotation, rotation_speed * 0.5 * delta)
 	
-	# 返回倾斜角度目标值
 	return movement_data.tilt_target
 
 ## 处理跳跃
 func handle_jump(input_data, character_body: CharacterBody3D) -> bool:
-	# 返回是否触发了跳跃
 	if character_body.is_on_floor() and input_data.jump_just_pressed:
 		character_body.velocity.y = jump_velocity
 		jump_triggered.emit(character_body.velocity.y)
@@ -122,21 +124,24 @@ func handle_collisions(character_body: CharacterBody3D) -> void:
 	if character_body.get_slide_collision_count() == 0:
 		return
 	
-	var collision = character_body.get_last_slide_collision()
-	var collider = collision.get_collider()
-	var normal = collision.get_normal()
-	
-	# 智能过滤：如果碰撞法线主要向上 (Y > 0.7)，说明是踩在物体上，不是撞到物体
-	if collider and normal.y < 0.7:
-		collision_detected.emit({
-			"collider_name": collider.name,
-			"position": [collision.get_position().x, collision.get_position().y, collision.get_position().z],
-			"normal": [normal.x, normal.y, normal.z]
-		})
+	# 检查所有的碰撞，而不仅仅是最后一个，确保侧向擦碰也能触发
+	for i in range(character_body.get_slide_collision_count()):
+		var collision = character_body.get_slide_collision(i)
+		var collider = collision.get_collider()
+		var normal = collision.get_normal()
+		
+		# 优化判定：只要不是几乎垂直向下的支撑力（normal.y > 0.9），就认为是侧向或撞击碰撞
+		if collider and normal.y < 0.9:
+			collision_detected.emit({
+				"collider_name": collider.name,
+				"position": [collision.get_position().x, collision.get_position().y, collision.get_position().z],
+				"normal": [normal.x, normal.y, normal.z]
+			})
+			# 找到一个有效碰撞就退出，防止单帧多次重复触发
+			return
 
 ## 处理物理推力
 func handle_physics_push(character_body: CharacterBody3D) -> void:
-	# 物理推力处理：让机器人能推球
 	for i in character_body.get_slide_collision_count():
 		var collision = character_body.get_slide_collision(i)
 		var collider = collision.get_collider()

@@ -6,13 +6,29 @@ extends Control
 @onready var input_edit: LineEdit = $Panel/HBoxContainer/LineEdit
 @onready var send_button: Button = $Panel/HBoxContainer/Button
 @onready var reconnect_button: Button = $Panel/HBoxContainer/ReconnectButton
+@onready var voice_button: Button = $Panel/HBoxContainer/VoiceButton
+@onready var settings_button: Button = $Panel/HBoxContainer/SettingsButton
+@onready var welcome_button: Button = $WelcomeButton
 @onready var chat_log: RichTextLabel = $Panel/VBoxContainer/RichTextLabel
+@onready var settings_panel: Control = $Settings
 @onready var ws_client = get_node("/root/Main/WebSocketClient")
+@onready var asr_client = get_node("/root/Main/ASRWebSocketClient")
+@onready var audio_recorder = get_node("/root/Main/AudioRecorder")
+
+var is_voice_recording: bool = false
+var recording_timer: Timer
 
 func _ready() -> void:
 	send_button.pressed.connect(_on_send_pressed)
 	if reconnect_button:
 		reconnect_button.pressed.connect(_on_reconnect_pressed)
+	if voice_button:
+		voice_button.button_down.connect(_on_voice_button_down)
+		voice_button.button_up.connect(_on_voice_button_up)
+	if settings_button:
+		settings_button.pressed.connect(_on_settings_pressed)
+	if welcome_button:
+		welcome_button.pressed.connect(_on_welcome_pressed)
 	input_edit.text_submitted.connect(_on_text_submitted)
 	# 当输入框失去焦点时，释放键盘输入，允许WASD移动
 	input_edit.focus_exited.connect(_on_input_focus_exited)
@@ -21,11 +37,22 @@ func _ready() -> void:
 		ws_client.connected.connect(_on_ws_connected)
 		ws_client.disconnected.connect(_on_ws_disconnected)
 		_update_reconnect_button_state()
+	
+	# 连接ASR客户端信号
+	if asr_client:
+		asr_client.recognition_result.connect(_on_asr_result)
+		asr_client.error_occurred.connect(_on_asr_error)
+	
+	# 创建录音定时器
+	recording_timer = Timer.new()
+	recording_timer.wait_time = 0.1  # 每100ms发送一次音频
+	recording_timer.timeout.connect(_on_recording_timer_timeout)
+	add_child(recording_timer)
 
 func _process(_delta: float) -> void:
 	# 定期更新重连按钮状态（防止信号丢失）
 	if reconnect_button and ws_client:
-		var should_be_disabled = ws_client.is_connected
+		var should_be_disabled = ws_client.is_connected_to_server()
 		if reconnect_button.disabled != should_be_disabled:
 			_update_reconnect_button_state()
 
@@ -55,7 +82,7 @@ func _send_input() -> void:
 	if text == "":
 		return
 		
-	if ws_client and ws_client.is_connected:
+	if ws_client and ws_client.is_connected_to_server():
 		ws_client.send_message("user_input", {"text": text})
 		_log("[color=blue]You: [/color]" + text)
 		input_edit.clear()
@@ -94,11 +121,87 @@ func _on_ws_disconnected() -> void:
 
 func _update_reconnect_button_state() -> void:
 	if reconnect_button and ws_client:
-		reconnect_button.disabled = ws_client.is_connected
-		if ws_client.is_connected:
+		reconnect_button.disabled = ws_client.is_connected_to_server()
+		if ws_client.is_connected_to_server():
 			reconnect_button.text = "Connected"
 		else:
 			reconnect_button.text = "Reconnect"
 
 func _log(msg: String) -> void:
 	chat_log.append_text(msg + "\n")
+
+func _on_settings_pressed() -> void:
+	if settings_panel:
+		settings_panel.visible = true
+		settings_panel.set_process_mode(Node.PROCESS_MODE_ALWAYS)
+
+func _on_voice_button_down() -> void:
+	if not asr_client or not audio_recorder:
+		_log("[color=red]System: ASR服务未初始化[/color]")
+		return
+	
+	if not asr_client.is_connected:
+		_log("[color=yellow]System: 正在连接ASR服务...[/color]")
+		asr_client.connect_to_server()
+		await get_tree().create_timer(0.5).timeout
+	
+	if not asr_client.is_connected:
+		_log("[color=red]System: 无法连接到ASR服务[/color]")
+		return
+	
+	# 开始录音
+	is_voice_recording = true
+	audio_recorder.start_recording()
+	asr_client.start_session()
+	recording_timer.start()
+	
+	voice_button.modulate = Color(1, 0.5, 0.5)  # 变红表示正在录音
+	_log("[color=cyan]System: 开始语音输入...[/color]")
+
+func _on_voice_button_up() -> void:
+	if not is_voice_recording:
+		return
+	
+	is_voice_recording = false
+	recording_timer.stop()
+	
+	# 停止录音并结束会话
+	var audio_data = audio_recorder.stop_recording()
+	if audio_data.size() > 0:
+		asr_client.send_audio(audio_data)
+	
+	asr_client.end_session()
+	voice_button.modulate = Color(1, 1, 1)  # 恢复原色
+	_log("[color=cyan]System: 语音输入结束[/color]")
+
+func _on_recording_timer_timeout() -> void:
+	if not is_voice_recording or not audio_recorder or not asr_client:
+		return
+	
+	# 获取最新的音频块并发送
+	var audio_chunk = audio_recorder.get_latest_chunk()
+	if audio_chunk.size() > 0 and asr_client.session_id != "":
+		asr_client.send_audio(audio_chunk)
+
+func _on_asr_result(text: String, is_final: bool) -> void:
+	if text != "":
+		if is_final:
+			# 最终结果，填入输入框
+			input_edit.text = text
+			_log("[color=cyan]System: 识别结果: " + text + "[/color]")
+		else:
+			# 中间结果，可以显示在输入框或日志中
+			# 这里选择显示在输入框，用户可以编辑
+			if not is_voice_recording:
+				input_edit.text = text
+
+func _on_asr_error(message: String) -> void:
+	_log("[color=red]System: ASR错误: " + message + "[/color]")
+
+func _on_welcome_pressed() -> void:
+	# 触发迎宾场景
+	if ws_client and ws_client.is_connected_to_server():
+		ws_client.send_message("scene_trigger", {"scene": "welcome"})
+		_log("[color=yellow]System: 触发迎宾场景[/color]")
+	else:
+		_log("[color=red]System: 未连接到服务器，无法触发场景[/color]")

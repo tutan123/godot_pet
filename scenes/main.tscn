@@ -1,9 +1,13 @@
-[gd_scene load_steps=16 format=3 uid="uid://main_scene_id"]
+[gd_scene load_steps=20 format=3 uid="uid://main_scene_id"]
 
 [ext_resource type="PackedScene" uid="uid://pet_root_id" path="res://scenes/pet.tscn" id="1_pet"]
+[ext_resource type="Script" path="res://scripts/config_manager.gd" id="2_config"]
 [ext_resource type="Script" path="res://scripts/websocket_client.gd" id="2_ws"]
+[ext_resource type="Script" path="res://scripts/asr_websocket_client.gd" id="2_asr"]
+[ext_resource type="Script" path="res://scripts/audio_recorder.gd" id="2_audio"]
 [ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3_cam"]
 [ext_resource type="Script" path="res://scripts/ui_controller.gd" id="4_ui"]
+[ext_resource type="PackedScene" uid="uid://settings_scene" path="res://scenes/settings.tscn" id="5_settings"]
 [ext_resource type="Shader" path="res://assets/environment/stage/skybox.gdshader" id="5_sky"]
 [ext_resource type="CompressedCubemap" uid="uid://bnqdokul6s4pt" path="res://assets/environment/stage/skybox.webp" id="6_tex"]
 [ext_resource type="Material" uid="uid://dqqlrr5i2rr4t" path="res://assets/environment/stage/tile_material.tres" id="7_tile_mat"]
@@ -94,6 +98,11 @@ mesh = SubResource("PlaneMesh_floor")
 shape = SubResource("BoxShape3D_floor")
 
 [node name="StageDecor" type="Node3D" parent="."]
+[node name="Stage" type="CSGBox3D" parent="StageDecor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, -4)
+use_collision = true
+size = Vector3(6, 0.3, 3)
+material = SubResource("StandardMaterial3D_grass")
 [node name="Platform1" type="CSGBox3D" parent="StageDecor"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, -8)
 use_collision = true
@@ -168,9 +177,18 @@ light_indirect_energy = 1.2
 [node name="Pet" parent="." instance=ExtResource("1_pet")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
 
+[node name="ConfigManager" type="Node" parent="."]
+script = ExtResource("2_config")
+
 [node name="WebSocketClient" type="Node" parent="."]
 script = ExtResource("2_ws")
 websocket_url = "ws://localhost:8080"
+
+[node name="ASRWebSocketClient" type="Node" parent="."]
+script = ExtResource("2_asr")
+
+[node name="AudioRecorder" type="Node" parent="."]
+script = ExtResource("2_audio")
 
 [node name="CameraRig" type="Node3D" parent="."]
 script = ExtResource("3_cam")
@@ -252,3 +270,32 @@ text = "Send"
 [node name="ReconnectButton" type="Button" parent="UI/Panel/HBoxContainer"]
 layout_mode = 2
 text = "Reconnect"
+
+[node name="VoiceButton" type="Button" parent="UI/Panel/HBoxContainer"]
+layout_mode = 2
+text = "🎤"
+flat = true
+
+[node name="SettingsButton" type="Button" parent="UI/Panel/HBoxContainer"]
+layout_mode = 2
+text = "⚙"
+flat = true
+
+[node name="Settings" parent="UI" instance=ExtResource("5_settings")]
+visible = false
+
+[node name="WelcomeButton" type="Button" parent="UI"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -120.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 60.0
+grow_horizontal = 0
+grow_vertical = 0
+focus_mode = 0
+text = "迎宾"
