@@ -10,7 +10,7 @@ var effect: AudioEffectRecord
 var recording_index: int = 0
 var last_recording_position: int = 0
 
-const SAMPLE_RATE: int = 16000
+const SAMPLE_RATE: int = 48000
 const CHANNELS: int = 1  # 单声道
 const FORMAT: int = AudioStreamWAV.FORMAT_16_BITS
 

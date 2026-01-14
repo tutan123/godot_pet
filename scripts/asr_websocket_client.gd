@@ -76,6 +76,7 @@ func start_session() -> void:
 	var message = {
 		"type": "start",
 		"config": {
+			"sample_rate": 48000, # 匹配 Godot 的录音采样率
 			"language": "zh",
 			"use_itn": true,
 			"vad_enabled": true,
@@ -93,15 +94,8 @@ func send_audio(audio_data: PackedByteArray) -> void:
 	if not is_connected or session_id == "":
 		return
 	
-	# 将音频数据编码为base64
-	var base64_data = Marshalls.raw_to_base64(audio_data)
-	
-	var message = {
-		"type": "audio",
-		"data": base64_data
-	}
-	
-	_send_json(message)
+	# 【优化】使用二进制发送，不再使用 Base64 包装 JSON，速度提升一倍以上
+	socket.send_binary(audio_data)
 
 func end_session() -> void:
 	if session_id == "":
