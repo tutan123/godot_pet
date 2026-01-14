@@ -173,8 +173,12 @@ func _on_voice_button_up() -> void:
 	
 	if audio_data.size() > 0:
 		asr_client.send_audio(audio_data)
+		print("[UI] Sent final audio chunk, waiting for recognition...")
 	
-	await get_tree().create_timer(0.2).timeout
+	# 增加等待时间，确保最后一整块音频的识别结果能够返回
+	# 服务端的end_session会等待0.3秒，所以这里等待0.5秒应该足够
+	await get_tree().create_timer(0.5).timeout
+	print("[UI] Ending ASR session...")
 	asr_client.end_session()
 	voice_button.modulate = Color(1, 1, 1)
 
@@ -184,11 +188,15 @@ func _on_recording_timer_timeout() -> void:
 	return
 
 func _on_asr_result(text: String, is_final: bool) -> void:
+	print("[UI] ASR result received - text: '", text, "', is_final: ", is_final, ", is_voice_recording: ", is_voice_recording)
 	if text != "":
 		if is_final:
-			# 最终结果，填入输入框
+			# 最终结果，填入输入框并自动发送
 			input_edit.text = text
 			_log("[color=cyan]System: 识别结果: " + text + "[/color]")
+			print("[UI] Auto-sending final result: ", text)
+			# 自动发送识别结果
+			_send_input()
 		else:
 			# 中间结果，可以显示在输入框或日志中
 			# 这里选择显示在输入框，用户可以编辑

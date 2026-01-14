@@ -142,18 +142,35 @@ func _handle_message(json_str: String) -> void:
 		print("ASR session started: ", session_id)
 		
 	elif status == "result":
+		# 服务端可能在顶层有text，也可能在data里有text
+		var text = message.get("text", "")
 		var data = message.get("data", {})
-		var text = data.get("text", "")
-		var is_final = data.get("is_final", false)
+		if text == "" and data:
+			text = data.get("text", "")
+		# is_final可能在顶层，也可能在data里（但ASRResult模型里没有，所以通常为false）
+		var is_final = message.get("is_final", false)
+		if not is_final and data:
+			is_final = data.get("is_final", false)
+		print("[ASR] Result received - text: ", text, ", is_final: ", is_final)
 		if text != "":
 			recognition_result.emit(text, is_final)
 			
 	elif status == "ended":
 		var final_result = message.get("final_result", {})
+		print("[ASR] Session ended, final_result: ", final_result)
 		if final_result:
 			var text = final_result.get("text", "")
+			print("[ASR] Final result text: ", text)
 			if text != "":
 				recognition_result.emit(text, true)
+		else:
+			# 如果没有final_result，尝试从data里获取
+			var data = message.get("data", {})
+			if data:
+				var text = data.get("text", "")
+				if text != "":
+					print("[ASR] Using data.text as final result: ", text)
+					recognition_result.emit(text, true)
 		session_id = ""
 		session_ended.emit()
 		
