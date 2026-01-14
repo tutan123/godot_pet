@@ -162,26 +162,26 @@ func _on_voice_button_up() -> void:
 	if not is_voice_recording:
 		return
 	
+	print("[UI] Voice button up - stopping recording...")
 	is_voice_recording = false
 	recording_timer.stop()
 	
-	# 停止录音并结束会话
-	var audio_data = audio_recorder.stop_recording()
+	# 【核心优化】停止定时器后，直接发送最后一整块完整的、高质量的音频数据
+	# 不再依赖之前的零碎块，由这一块决定最终识别结果
+	var audio_data = await audio_recorder.stop_recording()
+	print("[UI] Final recording data size: ", audio_data.size())
+	
 	if audio_data.size() > 0:
 		asr_client.send_audio(audio_data)
 	
+	await get_tree().create_timer(0.2).timeout
 	asr_client.end_session()
-	voice_button.modulate = Color(1, 1, 1)  # 恢复原色
-	_log("[color=cyan]System: 语音输入结束[/color]")
+	voice_button.modulate = Color(1, 1, 1)
 
 func _on_recording_timer_timeout() -> void:
-	if not is_voice_recording or not audio_recorder or not asr_client:
-		return
-	
-	# 获取最新的音频块并发送
-	var audio_chunk = audio_recorder.get_latest_chunk()
-	if audio_chunk.size() > 0 and asr_client.session_id != "":
-		asr_client.send_audio(audio_chunk)
+	# 【优化】临时禁用定时器发送碎片数据，改为松开按钮时发送全量
+	# 碎片化发送会导致 SenseVoice 多次重复识别相同内容
+	return
 
 func _on_asr_result(text: String, is_final: bool) -> void:
 	if text != "":

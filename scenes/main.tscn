@@ -1,27 +1,18 @@
-[gd_scene load_steps=20 format=3 uid="uid://main_scene_id"]
+[gd_scene load_steps=23 format=3 uid="uid://yd76yx5kcbwr"]
 
-[ext_resource type="PackedScene" uid="uid://pet_root_id" path="res://scenes/pet.tscn" id="1_pet"]
-[ext_resource type="Script" path="res://scripts/config_manager.gd" id="2_config"]
-[ext_resource type="Script" path="res://scripts/websocket_client.gd" id="2_ws"]
-[ext_resource type="Script" path="res://scripts/asr_websocket_client.gd" id="2_asr"]
-[ext_resource type="Script" path="res://scripts/audio_recorder.gd" id="2_audio"]
-[ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3_cam"]
-[ext_resource type="Script" path="res://scripts/ui_controller.gd" id="4_ui"]
-[ext_resource type="PackedScene" uid="uid://settings_scene" path="res://scenes/settings.tscn" id="5_settings"]
-[ext_resource type="Shader" path="res://assets/environment/stage/skybox.gdshader" id="5_sky"]
+[ext_resource type="PackedScene" path="res://scenes/pet.tscn" id="1_pet"]
+[ext_resource type="Script" uid="uid://bq62ag5oohtlu" path="res://scripts/asr_websocket_client.gd" id="2_asr"]
+[ext_resource type="Script" uid="uid://77nc2j6gr5fo" path="res://scripts/audio_recorder.gd" id="2_audio"]
+[ext_resource type="Script" uid="uid://dtfwasb0haqcr" path="res://scripts/config_manager.gd" id="2_config"]
+[ext_resource type="Script" uid="uid://4jidripga0qi" path="res://scripts/websocket_client.gd" id="2_ws"]
+[ext_resource type="Script" uid="uid://drmp1nghyudqg" path="res://scripts/camera_controller.gd" id="3_cam"]
+[ext_resource type="Script" uid="uid://b6hx3kyc1bflt" path="res://scripts/ui_controller.gd" id="4_ui"]
+[ext_resource type="PackedScene" path="res://scenes/settings.tscn" id="5_settings"]
+[ext_resource type="Shader" uid="uid://bromrf0kc05o8" path="res://assets/environment/stage/skybox.gdshader" id="5_sky"]
 [ext_resource type="CompressedCubemap" uid="uid://bnqdokul6s4pt" path="res://assets/environment/stage/skybox.webp" id="6_tex"]
 [ext_resource type="Material" uid="uid://dqqlrr5i2rr4t" path="res://assets/environment/stage/tile_material.tres" id="7_tile_mat"]
 [ext_resource type="Texture2D" uid="uid://dseoc70n3l2f6" path="res://assets/environment/stage/tiles_albedo.webp" id="8_albedo"]
 [ext_resource type="Texture2D" uid="uid://85x6dubgd46o" path="res://assets/environment/stage/tiles_rough.webp" id="9_rough"]
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grass"]
-albedo_color = Color(0.35, 0.65, 0.3, 1)
-albedo_texture = ExtResource("8_albedo")
-roughness_texture = ExtResource("9_rough")
-texture_filter = 4
-uv1_scale = Vector3(25, 25, 1)
-metallic = 0.0
-roughness = 0.9
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_1"]
 shader = ExtResource("5_sky")
@@ -38,18 +29,20 @@ ambient_light_source = 2
 ambient_light_color = Color(0.5, 0.5, 0.5, 1)
 ambient_light_sky_contribution = 0.3
 tonemap_mode = 4
+ssao_enabled = true
 glow_enabled = true
-glow_blend_mode = 2
-glow_intensity = 0.8
 fog_enabled = true
 fog_light_color = Color(0.4, 0.45, 0.5, 1)
-fog_sun_color = Color(1, 0.95, 0.8, 1)
-fog_density = 0.01
 fog_aerial_perspective = 0.5
 fog_sky_affect = 0.5
-ssao_enabled = true
-ssao_radius = 1.0
-ssao_intensity = 2.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grass"]
+albedo_color = Color(0.35, 0.65, 0.3, 1)
+albedo_texture = ExtResource("8_albedo")
+roughness = 0.9
+roughness_texture = ExtResource("9_rough")
+uv1_scale = Vector3(25, 25, 1)
+texture_filter = 4
 
 [sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
 size = Vector2(100, 100)
@@ -57,15 +50,13 @@ size = Vector2(100, 100)
 [sub_resource type="BoxShape3D" id="BoxShape3D_floor"]
 size = Vector3(100, 0.1, 100)
 
-[sub_resource type="WorldBoundaryShape3D" id="WorldBoundaryShape3D_1"]
-
 [sub_resource type="SphereShape3D" id="SphereShape3D_ball"]
 radius = 0.3
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ball"]
 albedo_color = Color(0.8, 0.2, 0.2, 1)
-roughness = 0.4
 metallic = 0.5
+roughness = 0.4
 
 [sub_resource type="SphereMesh" id="SphereMesh_ball"]
 material = SubResource("StandardMaterial3D_ball")
@@ -85,8 +76,6 @@ shadow_enabled = true
 shadow_bias = 0.04
 shadow_normal_bias = 1.5
 directional_shadow_mode = 1
-directional_shadow_max_distance = 100.0
-directional_shadow_fade_start = 0.8
 
 [node name="Floor" type="StaticBody3D" parent="."]
 
@@ -98,16 +87,32 @@ mesh = SubResource("PlaneMesh_floor")
 shape = SubResource("BoxShape3D_floor")
 
 [node name="StageDecor" type="Node3D" parent="."]
+
 [node name="Stage" type="CSGBox3D" parent="StageDecor"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, -4)
 use_collision = true
 size = Vector3(6, 0.3, 3)
 material = SubResource("StandardMaterial3D_grass")
+
 [node name="Platform1" type="CSGBox3D" parent="StageDecor"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, -8)
 use_collision = true
 size = Vector3(10, 0.5, 4)
 material = SubResource("StandardMaterial3D_grass")
+
+[node name="Column1" type="CSGCylinder3D" parent="StageDecor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0.4, -10)
+use_collision = true
+radius = 1.2
+height = 0.8
+material = ExtResource("7_tile_mat")
+
+[node name="Column2" type="CSGCylinder3D" parent="StageDecor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.4, -10)
+use_collision = true
+radius = 1.2
+height = 0.8
+material = ExtResource("7_tile_mat")
 
 [node name="PhysicsTest" type="Node3D" parent="."]
 
@@ -144,8 +149,6 @@ material = ExtResource("7_tile_mat")
 [node name="Ball" type="RigidBody3D" parent="PhysicsTest"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 5, 5)
 mass = 0.5
-friction = 0.5
-bounce = 0.3
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="PhysicsTest/Ball"]
 shape = SubResource("SphereShape3D_ball")
@@ -153,36 +156,20 @@ shape = SubResource("SphereShape3D_ball")
 [node name="MeshInstance3D" type="MeshInstance3D" parent="PhysicsTest/Ball"]
 mesh = SubResource("SphereMesh_ball")
 
-[node name="Column1" type="CSGCylinder3D" parent="StageDecor"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0.4, -10)
-use_collision = true
-radius = 1.2
-height = 0.8
-material = ExtResource("7_tile_mat")
-
-[node name="Column2" type="CSGCylinder3D" parent="StageDecor"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.4, -10)
-use_collision = true
-radius = 1.2
-height = 0.8
-material = ExtResource("7_tile_mat")
-
 [node name="AmbientLight" type="OmniLight3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 0)
 light_color = Color(0.9, 0.95, 1, 1)
 light_energy = 0.4
-omni_range = 50.0
 light_indirect_energy = 1.2
+omni_range = 50.0
 
 [node name="Pet" parent="." instance=ExtResource("1_pet")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
 
 [node name="ConfigManager" type="Node" parent="."]
 script = ExtResource("2_config")
 
 [node name="WebSocketClient" type="Node" parent="."]
 script = ExtResource("2_ws")
-websocket_url = "ws://localhost:8080"
 
 [node name="ASRWebSocketClient" type="Node" parent="."]
 script = ExtResource("2_asr")
@@ -199,7 +186,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 spring_length = 5.0
 
 [node name="Camera3D" type="Camera3D" parent="CameraRig/SpringArm3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
 current = true
 
 [node name="UI" type="Control" parent="."]
@@ -283,14 +269,13 @@ flat = true
 
 [node name="Settings" parent="UI" instance=ExtResource("5_settings")]
 visible = false
+layout_mode = 1
 
 [node name="WelcomeButton" type="Button" parent="UI"]
 layout_mode = 1
-anchors_preset = 3
+anchors_preset = 1
 anchor_left = 1.0
-anchor_top = 0.0
 anchor_right = 1.0
-anchor_bottom = 0.0
 offset_left = -120.0
 offset_top = 20.0
 offset_right = -20.0

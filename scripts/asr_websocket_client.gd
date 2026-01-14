@@ -26,6 +26,11 @@ func connect_to_server() -> void:
 		socket.close()
 		is_connected = false
 	
+	# 【核心修复】扩容缓冲区，防止 Error 6 (ERR_OUT_OF_MEMORY)
+	# 48kHz PCM 数据很大，默认 64KB 缓冲区不够用
+	socket.inbound_buffer_size = 1024 * 1024 * 4 # 4MB
+	socket.outbound_buffer_size = 1024 * 1024 * 4 # 4MB
+	
 	print("Connecting to ASR WebSocket server: ", asr_websocket_url)
 	var err = socket.connect_to_url(asr_websocket_url)
 	if err != OK:
@@ -91,11 +96,12 @@ func start_session() -> void:
 	_send_json(message)
 
 func send_audio(audio_data: PackedByteArray) -> void:
-	if not is_connected or session_id == "":
+	if not is_connected:
+		# 只有在完全没有网络连接时才跳过
 		return
 	
-	# 【优化】使用二进制发送，不再使用 Base64 包装 JSON，速度提升一倍以上
-	socket.send_binary(audio_data)
+	# 发送音频数据（后端会自动识别或创建会话）
+	socket.send(audio_data)
 
 func end_session() -> void:
 	if session_id == "":

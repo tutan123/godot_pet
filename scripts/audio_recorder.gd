@@ -14,29 +14,46 @@ const SAMPLE_RATE: int = 48000
 const CHANNELS: int = 1  # 单声道
 const FORMAT: int = AudioStreamWAV.FORMAT_16_BITS
 
+var mic_player: AudioStreamPlayer
+
 func _ready() -> void:
-	# 获取或创建AudioEffectRecord
+	# 1. 检查是否存在名为 Record 的总线
 	var idx = AudioServer.get_bus_index("Record")
 	if idx == -1:
-		# 创建录音总线
-		AudioServer.add_bus(1)
+		# 如果没有，我们就在最末尾创建一个，并把它静音
+		AudioServer.add_bus()
 		idx = AudioServer.bus_count - 1
 		AudioServer.set_bus_name(idx, "Record")
 	
 	recording_index = idx
 	
-	# 检查是否已有录音效果
-	var has_effect = false
-	for i in range(AudioServer.get_bus_effect_count(idx)):
-		var bus_effect = AudioServer.get_bus_effect(idx, i)
-		if bus_effect is AudioEffectRecord:
-			effect = bus_effect
-			has_effect = true
-			break
+	# 2. 强制 Record 总线静音 (Mute)，防止回传到 Master 产生回音
+	# Mute 总线绝对不会影响 AudioEffectRecord 拿数据，这是 Godot 的底层设计
+	AudioServer.set_bus_mute(idx, true)
+	AudioServer.set_bus_volume_db(idx, 0.0)
 	
-	if not has_effect:
-		effect = AudioEffectRecord.new()
-		AudioServer.add_bus_effect(idx, effect)
+	# 3. 建立采集链条
+	if mic_player == null:
+		mic_player = AudioStreamPlayer.new()
+		add_child(mic_player)
+	
+	mic_player.stream = AudioStreamMicrophone.new()
+	mic_player.bus = "Record"
+	mic_player.play() # 启动麦克风拉取数据
+	
+	# 4. 确保效果器就位
+	_ensure_record_effect_exists(idx)
+
+func _ensure_record_effect_exists(idx: int) -> void:
+	for i in range(AudioServer.get_bus_effect_count(idx)):
+		if AudioServer.get_bus_effect(idx, i) is AudioEffectRecord:
+			effect = AudioServer.get_bus_effect(idx, i)
+			return
+	
+	# 如果总线上没有效果器，手动加一个
+	var new_effect = AudioEffectRecord.new()
+	AudioServer.add_bus_effect(idx, new_effect)
+	effect = new_effect
 
 func start_recording() -> void:
 	if recording:
@@ -48,17 +65,18 @@ func start_recording() -> void:
 	if recording_index == -1:
 		recording_index = AudioServer.get_bus_index("Record")
 		if recording_index == -1:
-			print("无法找到录音总线")
+			print("[Audio] Error: Could not find 'Record' bus")
 			recording = false
 			return
 	
 	effect.set_recording_active(true)
-	print("开始录音...")
+	print("[Audio] Recording started on bus: ", recording_index)
 
 func stop_recording() -> PackedByteArray:
 	if not recording:
 		return PackedByteArray()
 	
+	print("[Audio] Stopping recording...")
 	recording = false
 	effect.set_recording_active(false)
 	
@@ -68,12 +86,17 @@ func stop_recording() -> PackedByteArray:
 	# 获取录音数据
 	var recording_data = effect.get_recording()
 	if recording_data == null:
-		print("录音数据为空")
+		print("[Audio] Error: Recording data is null")
 		return PackedByteArray()
 	
-	# 转换为16kHz单声道PCM
+	# 【参考官方Demo优化】显式设置元数据，确保转换前格式明确
+	recording_data.mix_rate = SAMPLE_RATE
+	recording_data.format = FORMAT
+	recording_data.stereo = (CHANNELS == 2)
+	
+	# 转换为 PCM
 	var audio_data = _convert_audio(recording_data)
-	print("录音结束，数据大小: ", audio_data.size(), " 字节")
+	print("[Audio] Recording stopped. Raw size: ", recording_data.data.size(), ", Processed size: ", audio_data.size())
 	
 	return audio_data
 
@@ -86,6 +109,11 @@ func get_latest_chunk() -> PackedByteArray:
 	if recording_data == null:
 		return PackedByteArray()
 	
+	# 【参考官方Demo优化】同步元数据
+	recording_data.mix_rate = SAMPLE_RATE
+	recording_data.format = FORMAT
+	recording_data.stereo = (CHANNELS == 2)
+	
 	# 获取当前数据长度
 	var current_length = recording_data.data.size()
 	if current_length <= last_recording_position:
@@ -95,7 +123,7 @@ func get_latest_chunk() -> PackedByteArray:
 	var new_data = recording_data.data.slice(last_recording_position)
 	last_recording_position = current_length
 	
-	# 转换为16kHz单声道PCM
+	# 转换为 PCM
 	return _convert_audio_chunk(new_data, recording_data)
 
 func _convert_audio_chunk(data: PackedByteArray, stream: AudioStreamWAV) -> PackedByteArray:
@@ -108,39 +136,29 @@ func _convert_audio_chunk(data: PackedByteArray, stream: AudioStreamWAV) -> Pack
 	return data
 
 func _convert_audio(stream: AudioStreamWAV) -> PackedByteArray:
-	# 获取原始数据
-	var data = stream.data
-	
-	# 如果已经是16kHz单声道16位，直接返回
-	if stream.mix_rate == SAMPLE_RATE and stream.format == FORMAT and not stream.stereo:
-		return data
-	
-	# 需要转换（简化版本）
-	# 如果是立体声，只取左声道
-	var samples = PackedInt32Array()
-	var sample_count = data.size() / 2  # 16位 = 2字节
-	
+	# 【原理重构】必须处理声道问题
+	var raw_data = stream.data
+	if raw_data.is_empty():
+		return raw_data
+		
+	# 【核心修复】针对 2通道 48000Hz 的精准单声道提取
 	if stream.stereo:
-		# 立体声，只取左声道
-		for i in range(0, sample_count, 2):
-			var byte_idx = i * 2
-			if byte_idx + 1 < data.size():
-				var sample = data.decode_u16(byte_idx)
-				samples.append(sample)
-	else:
-		# 单声道，直接使用
-		for i in range(sample_count):
-			var byte_idx = i * 2
-			if byte_idx + 1 < data.size():
-				var sample = data.decode_u16(byte_idx)
-				samples.append(sample)
+		var mono_data = PackedByteArray()
+		var total_size = raw_data.size()
+		mono_data.resize(total_size / 2) # 预分配一半的空间
+		
+		var write_idx = 0
+		var read_idx = 0
+		while read_idx < total_size:
+			# 每个采样 2 字节（16位）。双声道结构是 [L, L, R, R]
+			# 我们只取前两个字节 (左声道)
+			mono_data[write_idx] = raw_data[read_idx]
+			mono_data[write_idx+1] = raw_data[read_idx+1]
+			write_idx += 2
+			read_idx += 4 # 跳过右声道的 2 个字节
+		return mono_data
 	
-	# 转换回PackedByteArray
-	var result = PackedByteArray()
-	for sample in samples:
-		result.append_array(PackedByteArray([sample & 0xFF, (sample >> 8) & 0xFF]))
-	
-	return result
+	return raw_data
 
 func is_recording() -> bool:
 	return recording
