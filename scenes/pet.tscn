@@ -1,14 +1,14 @@
 [gd_scene load_steps=12 format=3 uid="uid://pet_root_id"]
 
 [ext_resource type="Script" path="res://scripts/pet_controller.gd" id="1_script"]
-[ext_resource type="PackedScene" uid="uid://c3cve8nqyv2v4" path="res://assets/models/player/player.glb" id="2_model"]
+[ext_resource type="PackedScene" path="res://assets/models/avatar/VOICE_FIGHT_ACTION.glb" id="2_model"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_1"]
 radius = 0.4
 height = 1.2
 
 [sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_idle"]
-animation = &"idle"
+animation = &"stand"
 
 [sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_jump"]
 animation = &"jump"
@@ -20,7 +20,7 @@ animation = &"run"
 animation = &"walk"
 
 [sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_wave"]
-animation = &"wave"
+animation = &"run"
 
 [sub_resource type="AnimationNodeBlendSpace1D" id="AnimationNodeBlendSpace1D_locomotion"]
 blend_point_0/node = SubResource("AnimationNodeAnimation_idle")

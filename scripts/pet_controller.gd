@@ -26,8 +26,12 @@ var messaging_module
 @export var jump_velocity: float = 6.5
 @export var push_force: float = 0.5
 @export var drag_height: float = 1.5
+@export var click_move_speed: float = 3.0  # 点击移动的速度
+@export var arrival_distance: float = 0.3  # 到达目标的距离阈值
 
 var target_position: Vector3
+var click_target_position: Vector3 = Vector3.ZERO  # 点击移动的目标位置
+var is_moving_to_click: bool = false  # 是否正在移动到点击位置
 var is_server_moving: bool = false
 var is_flying: bool = false
 var is_executing_scene: bool = false
@@ -62,6 +66,22 @@ func _ready() -> void:
 	var skeleton_node = mesh_root.get_node_or_null("Skeleton/Skeleton3D")
 	if skeleton_node: animation_module.setup_skeleton(skeleton_node)
 	
+	# 设置 stand、walk、run、jump 动画为循环模式
+	var anim_player = mesh_root.get_node_or_null("AnimationPlayer")
+	if anim_player:
+		var stand_anim = anim_player.get_animation("stand")
+		if stand_anim:
+			stand_anim.loop_mode = Animation.LOOP_LINEAR
+		var walk_anim = anim_player.get_animation("walk")
+		if walk_anim:
+			walk_anim.loop_mode = Animation.LOOP_LINEAR
+		var run_anim = anim_player.get_animation("run")
+		if run_anim:
+			run_anim.loop_mode = Animation.LOOP_LINEAR
+		var jump_anim = anim_player.get_animation("jump")
+		if jump_anim:
+			jump_anim.loop_mode = Animation.LOOP_LINEAR
+	
 	if ws_client: ws_client.message_received.connect(_on_ws_message)
 	physics_module.jump_triggered.connect(_on_jump_triggered)
 	physics_module.collision_detected.connect(_on_collision_detected)
@@ -75,6 +95,7 @@ func _ready() -> void:
 	interaction_module.drag_started.connect(func(): _log("[Action] Drag Started"))
 	interaction_module.drag_finished.connect(func(): _log("[Action] Drag Finished"))
 	interaction_module.clicked.connect(func(): _log("[Action] Clicked"))
+	interaction_module.ground_clicked.connect(_on_ground_clicked)
 	
 	messaging_module.action_state_applied.connect(_on_action_state_applied)
 	messaging_module.move_to_received.connect(_on_move_to_received)
@@ -104,12 +125,22 @@ func _physics_process(delta: float) -> void:
 		return
 
 	if is_executing_scene: return
-
+	
 	# 马尔可夫性修复：基于当前状态决定是否允许本地 locomotion
 	# 如果当前有服务器动作状态且不是基础移动，说明正在执行重要指令，让路
 	var is_doing_important_action = not messaging_module.current_action_state.is_empty() and not messaging_module.current_action_state.get("is_locomotion", false)
 	
 	var input_data = input_module.get_input_data()
+	
+	# 如果用户按了键盘移动，取消点击移动
+	if is_moving_to_click and input_data.direction.length() > 0.1:
+		is_moving_to_click = false
+		_log("[Move] Click movement cancelled by keyboard input")
+	
+	# 处理点击移动
+	if is_moving_to_click:
+		handle_click_movement(delta)
+		return
 	physics_module.target_position = target_position
 	physics_module.is_server_moving = is_server_moving
 	physics_module.is_flying = is_flying
@@ -162,9 +193,18 @@ func _input_event(_camera: Camera3D, event: InputEvent, _position: Vector3, _nor
 func _input(event: InputEvent) -> void:
 	# 核心修复：当拖拽开始后，如果鼠标移出宠物范围，_input_event 就不再触发
 	# 我们需要在全局 _input 中补捕获鼠标释放，确保拖拽能正常结束
-	if interaction_module and interaction_module.is_dragging:
-		if event is InputEventMouseButton and not event.pressed:
-			interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
+	if interaction_module:
+		if interaction_module.is_dragging:
+			if event is InputEventMouseButton and not event.pressed:
+				interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
+		# 处理地面点击（即使不在角色上也能触发）
+		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			# 检查是否点击了地面（不在UI上）
+			if not get_viewport().gui_get_focus_owner() is Control:
+				var ground_pos = interaction_module.get_ground_position_under_mouse()
+				if ground_pos != Vector3.ZERO:
+					interaction_module.ground_clicked.emit(ground_pos)
+					interaction_module.show_target_indicator(ground_pos)
 
 func _on_ws_message(type: String, data: Dictionary) -> void:
 	messaging_module.handle_ws_message(type, data, animation_tree)
@@ -213,6 +253,54 @@ func _on_position_set_received(pos: Vector3) -> void:
 func _on_scene_received(scene_name, _d): if scene_name == "welcome": _execute_welcome_scene()
 
 func _on_dynamic_scene_received(steps): _execute_dynamic_scene(steps)
+
+## 处理地面点击事件
+func _on_ground_clicked(target_pos: Vector3) -> void:
+	click_target_position = target_pos
+	is_moving_to_click = true
+	_log("[Move] Clicked to move to: %s" % target_pos)
+
+## 处理点击移动逻辑
+func handle_click_movement(delta: float) -> void:
+	var to_target = click_target_position - global_position
+	to_target.y = 0  # 忽略Y轴差异，只在地面移动
+	
+	var distance = to_target.length()
+	
+	# 检查是否到达目标
+	if distance < arrival_distance:
+		# 到达目标，停止移动
+		is_moving_to_click = false
+		velocity.x = 0
+		velocity.z = 0
+		_log("[Move] Arrived at target position")
+		return
+	
+	# 计算移动方向
+	var direction = to_target.normalized()
+	
+	# 应用移动速度
+	velocity.x = direction.x * click_move_speed
+	velocity.z = direction.z * click_move_speed
+	
+	# 旋转朝向目标
+	var target_rotation = atan2(direction.x, direction.z)
+	rotation.y = lerp_angle(rotation.y, target_rotation, 10.0 * delta)
+	
+	# 设置动画状态（根据速度决定walk或run）
+	var current_speed = Vector2(velocity.x, velocity.z).length()
+	if current_speed > 0.1:
+		var target_anim = PetData.AnimState.WALK
+		if current_speed > walk_speed * 0.7:
+			target_anim = PetData.AnimState.RUN
+		
+		if current_anim_state != target_anim:
+			animation_module.set_anim_state(target_anim)
+			current_anim_state = target_anim
+	
+	# 应用物理（重力等）
+	physics_module.apply_physics(PetData.MovementData.new(), self, delta)
+	move_and_slide()
 
 func _execute_dynamic_scene(steps: Array) -> void:
 	if is_executing_scene: return
