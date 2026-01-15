@@ -191,20 +191,20 @@ func _input_event(_camera: Camera3D, event: InputEvent, _position: Vector3, _nor
 		interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
 
 func _input(event: InputEvent) -> void:
-	# 核心修复：当拖拽开始后，如果鼠标移出宠物范围，_input_event 就不再触发
-	# 我们需要在全局 _input 中补捕获鼠标释放，确保拖拽能正常结束
-	if interaction_module:
-		if interaction_module.is_dragging:
-			if event is InputEventMouseButton and not event.pressed:
-				interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
-		# 处理地面点击（即使不在角色上也能触发）
-		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
-			# 检查是否点击了地面（不在UI上）
-			if not get_viewport().gui_get_focus_owner() is Control:
-				var ground_pos = interaction_module.get_ground_position_under_mouse()
-				if ground_pos != Vector3.ZERO:
-					interaction_module.ground_clicked.emit(ground_pos)
-					interaction_module.show_target_indicator(ground_pos)
+	# 只有在拖拽状态下，我们才需要全局捕获鼠标抬起事件，以确保拖拽正常结束
+	if interaction_module and interaction_module.is_dragging:
+		if event is InputEventMouseButton and not event.pressed:
+			interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
+
+func _unhandled_input(event: InputEvent) -> void:
+	# 优雅方案：利用 Godot 的 _unhandled_input 机制处理地面点击
+	# 只有当点击事件没有被 UI 拦截时（比如点在空地），此函数才会被触发
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		if interaction_module:
+			var ground_pos = interaction_module.get_ground_position_under_mouse()
+			if ground_pos != Vector3.ZERO:
+				interaction_module.ground_clicked.emit(ground_pos)
+				interaction_module.show_target_indicator(ground_pos)
 
 func _on_ws_message(type: String, data: Dictionary) -> void:
 	messaging_module.handle_ws_message(type, data, animation_tree)

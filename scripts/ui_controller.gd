@@ -29,6 +29,13 @@ func _ready() -> void:
 		settings_button.pressed.connect(_on_settings_pressed)
 	if welcome_button:
 		welcome_button.pressed.connect(_on_welcome_pressed)
+	
+	# 关键修复：确保所有按钮都不会夺取焦点，只有输入框需要焦点
+	# 这样点击按钮后，焦点不会留在按钮上，从而不会干扰 3D 场景的点击检测
+	for btn in [send_button, reconnect_button, voice_button, settings_button, welcome_button]:
+		if btn:
+			btn.focus_mode = Control.FOCUS_NONE
+	
 	input_edit.text_submitted.connect(_on_text_submitted)
 	# 当输入框失去焦点时，释放键盘输入，允许WASD移动
 	input_edit.focus_exited.connect(_on_input_focus_exited)
@@ -57,12 +64,17 @@ func _process(_delta: float) -> void:
 			_update_reconnect_button_state()
 
 func _input(event: InputEvent) -> void:
-	# 关键修复：点击聊天面板 ($Panel) 以外的任何区域，都立即释放焦点
+	# 点击 UI 以外的区域释放 LineEdit 焦点，恢复键盘控制
 	if event is InputEventMouseButton and event.pressed:
-		var mouse_pos = get_viewport().get_mouse_position()
-		var panel: Panel = $Panel
-		if panel and not panel.get_global_rect().has_point(mouse_pos):
-			input_edit.release_focus()
+		if input_edit.has_focus():
+			var mouse_pos = get_viewport().get_mouse_position()
+			# 如果点击位置不在 Panel 内，释放焦点
+			var panel: Panel = $Panel
+			if panel and not panel.get_global_rect().has_point(mouse_pos):
+				input_edit.release_focus()
+
+# 移除之前复杂的递归检测函数，因为现在利用 _unhandled_input 自动处理了底层逻辑
+# _is_point_on_ui 和 _check_children_for_point 已不再需要
 
 func _on_send_pressed() -> void:
 	_send_input()

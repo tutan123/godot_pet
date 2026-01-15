@@ -251,19 +251,23 @@ placeholder_text = "Enter command..."
 
 [node name="Button" type="Button" parent="UI/Panel/HBoxContainer"]
 layout_mode = 2
+focus_mode = 0
 text = "Send"
 
 [node name="ReconnectButton" type="Button" parent="UI/Panel/HBoxContainer"]
 layout_mode = 2
+focus_mode = 0
 text = "Reconnect"
 
 [node name="VoiceButton" type="Button" parent="UI/Panel/HBoxContainer"]
 layout_mode = 2
+focus_mode = 0
 text = "🎤"
 flat = true
 
 [node name="SettingsButton" type="Button" parent="UI/Panel/HBoxContainer"]
 layout_mode = 2
+focus_mode = 0
 text = "⚙"
 flat = true
 
