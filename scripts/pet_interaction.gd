@@ -139,16 +139,15 @@ func get_ground_position_under_mouse() -> Vector3:
 
 ## 显示瞄准圆圈特效
 func show_target_indicator(position: Vector3) -> void:
-	# 创建瞄准圆圈（使用CSGCylinder或MeshInstance）
+	# 创建瞄准圆圈（使用圆环网格，自然就是水平的）
 	var scene_root = get_tree().get_root().get_child(0)  # 获取主场景根节点
 	
-	# 创建圆圈节点
+	# 创建圆圈节点（使用 TorusMesh 圆环，默认就是水平放置的）
 	var indicator = MeshInstance3D.new()
-	var cylinder_mesh = CylinderMesh.new()
-	cylinder_mesh.top_radius = 0.5
-	cylinder_mesh.bottom_radius = 0.5
-	cylinder_mesh.height = 0.01
-	indicator.mesh = cylinder_mesh
+	var torus_mesh = TorusMesh.new()
+	torus_mesh.inner_radius = 0.45  # 内半径
+	torus_mesh.outer_radius = 0.5   # 外半径（圆圈宽度约 0.05）
+	indicator.mesh = torus_mesh
 	
 	# 创建发光材质
 	var material = StandardMaterial3D.new()
@@ -160,9 +159,9 @@ func show_target_indicator(position: Vector3) -> void:
 	material.flags_transparent = true
 	indicator.material_override = material
 	
-	# 设置位置（稍微高于地面）
-	indicator.global_position = position + Vector3(0, 0.01, 0)
-	indicator.rotation.x = deg_to_rad(90)  # 让圆柱体平躺
+	# 设置位置（稍微高于地面，确保贴地显示）
+	indicator.global_position = position + Vector3(0, 0.005, 0)
+	# TorusMesh 默认就是水平的，不需要旋转
 	
 	scene_root.add_child(indicator)
 	
