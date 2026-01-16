@@ -66,9 +66,11 @@ func _ready() -> void:
 	var skeleton_node = mesh_root.get_node_or_null("Skeleton/Skeleton3D")
 	if skeleton_node: animation_module.setup_skeleton(skeleton_node)
 	
-	# 设置 stand、walk、run、jump 动画为循环模式
+	# 设置 AnimationPlayer 引用，用于直接播放非基础动画
 	var anim_player = mesh_root.get_node_or_null("AnimationPlayer")
 	if anim_player:
+		animation_module.anim_player = anim_player
+		# 设置基础移动动画为循环模式
 		var stand_anim = anim_player.get_animation("stand")
 		if stand_anim:
 			stand_anim.loop_mode = Animation.LOOP_LINEAR

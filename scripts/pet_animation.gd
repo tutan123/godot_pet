@@ -14,6 +14,7 @@ signal procedural_anim_finished(anim_name: String) # 新增：告知动作结束
 var animation_tree: AnimationTree
 var mesh_root: Node3D
 var skeleton: Skeleton3D  # 用于程序化骨骼动画
+var anim_player: AnimationPlayer  # 直接访问 AnimationPlayer，用于播放非基础动画
 
 ## 状态变量（通过主控制器传递）
 var current_anim_state: int = PetData.AnimState.IDLE
@@ -102,9 +103,15 @@ func switch_anim(anim_name: String) -> void:
 	# 切换回常规动画：清除程序化状态
 	clear_procedural_anim_state()
 	
-	# 转换为枚举并立即切换（基于当前动作名称）
-	var target_state = string_to_anim_state(normalized_name)
-	set_anim_state(target_state, current_anim_state == PetData.AnimState.JUMP)
+	# 检查是否是基础移动动画（使用 BlendTree）
+	var base_animations = ["idle", "stand", "walk", "run", "jump"]
+	if normalized_name in base_animations:
+		# 转换为枚举并立即切换（基于当前动作名称）
+		var target_state = string_to_anim_state(normalized_name)
+		set_anim_state(target_state, current_anim_state == PetData.AnimState.JUMP)
+	else:
+		# 其他动画：直接通过 AnimationPlayer 播放
+		_play_animation_directly(normalized_name)
 
 ## 规范化动作名称
 func normalize_action_name(name: String) -> String:
@@ -372,3 +379,52 @@ func _reset_arm_to_rest() -> void:
 	if right_forearm_bone_id >= 0:
 		skeleton.set_bone_pose_position(right_forearm_bone_id, right_forearm_rest_transform.origin)
 		skeleton.set_bone_pose_rotation(right_forearm_bone_id, right_forearm_rest_transform.basis.get_rotation_quaternion())
+
+## 直接播放动画（不通过 AnimationTree）
+## 用于播放非基础移动动画，无需在场景文件中定义
+func _play_animation_directly(anim_name: String) -> void:
+	if not anim_player:
+		# 尝试从 mesh_root 获取 AnimationPlayer
+		if mesh_root:
+			anim_player = mesh_root.get_node_or_null("AnimationPlayer")
+	
+	if not anim_player:
+		push_warning("[Animation] AnimationPlayer not found, cannot play: " + anim_name)
+		return
+	
+	# 暂停 AnimationTree，让 AnimationPlayer 直接控制
+	if animation_tree:
+		animation_tree.active = false
+	
+	# 检查动画是否存在
+	if not anim_player.has_animation(anim_name):
+		push_warning("[Animation] Animation not found: " + anim_name)
+		# 恢复 AnimationTree 并回到 idle
+		if animation_tree:
+			animation_tree.active = true
+			set_anim_state(PetData.AnimState.IDLE)
+		return
+	
+	# 播放动画
+	anim_player.play(anim_name)
+	
+	# 如果动画不是循环的，等待完成后恢复 AnimationTree
+	var anim = anim_player.get_animation(anim_name)
+	if anim and anim.loop_mode != Animation.LOOP_LINEAR:
+		# 使用协程等待动画完成
+		_wait_for_animation_finish(anim_name)
+
+## 等待动画完成的协程
+func _wait_for_animation_finish(anim_name: String) -> void:
+	if not anim_player:
+		return
+	
+	# 等待动画播放完成
+	await anim_player.animation_finished
+	
+	# 检查当前播放的动画是否是我们等待的动画
+	if anim_player.current_animation == anim_name:
+		# 恢复 AnimationTree 并回到 idle
+		if animation_tree:
+			animation_tree.active = true
+			set_anim_state(PetData.AnimState.IDLE)
