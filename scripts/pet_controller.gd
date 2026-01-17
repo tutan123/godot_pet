@@ -9,6 +9,8 @@ const PetPhysicsScript = preload("res://scripts/pet_physics.gd")
 const PetAnimationScript = preload("res://scripts/pet_animation.gd")
 const PetInteractionScript = preload("res://scripts/pet_interaction.gd")
 const PetMessagingScript = preload("res://scripts/pet_messaging.gd")
+const EQSAdapter = preload("res://scripts/eqs_adapter.gd")
+const SceneObjectSync = preload("res://scripts/scene_object_sync.gd")
 
 @onready var animation_tree: AnimationTree = $AnimationTree
 @onready var ws_client = get_node_or_null("/root/Main/WebSocketClient")
@@ -19,6 +21,8 @@ var physics_module
 var animation_module
 var interaction_module
 var messaging_module
+var eqs_adapter: EQSAdapter
+var scene_object_sync: SceneObjectSync
 
 @export var walk_speed: float = 3.0
 @export var run_speed: float = 7.0
@@ -51,6 +55,8 @@ func _ready() -> void:
 	animation_module = PetAnimationScript.new(); add_child(animation_module)
 	interaction_module = PetInteractionScript.new(); add_child(interaction_module)
 	messaging_module = PetMessagingScript.new(); add_child(messaging_module)
+	eqs_adapter = EQSAdapter.new(); add_child(eqs_adapter)
+	scene_object_sync = SceneObjectSync.new(); add_child(scene_object_sync)
 	
 	physics_module.walk_speed = walk_speed
 	physics_module.run_speed = run_speed
@@ -62,6 +68,13 @@ func _ready() -> void:
 	messaging_module.ws_client = ws_client
 	animation_module.animation_tree = animation_tree
 	animation_module.mesh_root = mesh_root
+	eqs_adapter.ws_client = ws_client
+	scene_object_sync.ws_client = ws_client
+	
+	# 查找导航网格
+	var navmesh_node = get_node_or_null("/root/Main/NavigationRegion3D")
+	if navmesh_node:
+		eqs_adapter.navmesh = navmesh_node
 	
 	var skeleton_node = mesh_root.get_node_or_null("Skeleton/Skeleton3D")
 	if skeleton_node: animation_module.setup_skeleton(skeleton_node)
@@ -89,6 +102,7 @@ func _ready() -> void:
 	physics_module.collision_detected.connect(_on_collision_detected)
 	animation_module.anim_state_changed.connect(_on_anim_state_changed)
 	animation_module.procedural_anim_finished.connect(_on_procedural_finished)
+	eqs_adapter.eqs_result_ready.connect(_on_eqs_result_ready)
 	
 	# 关键修复：连接交互模块信号
 	interaction_module.interaction_sent.connect(func(action, data): 
@@ -104,6 +118,7 @@ func _ready() -> void:
 	messaging_module.position_set_received.connect(_on_position_set_received)
 	messaging_module.scene_received.connect(_on_scene_received)
 	messaging_module.dynamic_scene_received.connect(_on_dynamic_scene_received)
+	messaging_module.eqs_query_received.connect(_on_eqs_query_received)
 	
 	if animation_tree: animation_tree.active = true
 	
@@ -133,11 +148,15 @@ func _physics_process(delta: float) -> void:
 	var is_doing_important_action = not messaging_module.current_action_state.is_empty() and not messaging_module.current_action_state.get("is_locomotion", false)
 	
 	var input_data = input_module.get_input_data()
+	var is_local_controlling = input_data.direction.length() > 0.1
 	
-	# 如果用户按了键盘移动，取消点击移动
-	if is_moving_to_click and input_data.direction.length() > 0.1:
-		is_moving_to_click = false
-		_log("[Move] Click movement cancelled by keyboard input")
+	# 如果用户有任何本地输入（键盘或点击），立即切断所有自动化移动目标
+	if is_local_controlling:
+		if is_moving_to_click or is_server_moving:
+			is_moving_to_click = false
+			is_server_moving = false
+			target_position = global_position # 强制目标设为当前点，切断“执念”
+			_log("[Move] AI movement aborted by manual control")
 	
 	# 处理点击移动
 	if is_moving_to_click:
@@ -151,7 +170,7 @@ func _physics_process(delta: float) -> void:
 	# 检查是否在执行程序化动画（如 FLY）
 	var is_procedural_active = animation_module.proc_anim_type != PetData.ProcAnimType.NONE
 	
-	# 如果是程序化动画（如 FLY），暂停物理引擎的 Y 轴重力，让程序化动画控制位置
+	# 物理逻辑处理
 	if not is_procedural_active:
 		physics_module.apply_physics(movement_data, self, delta)
 		physics_module.apply_movement(movement_data, self, delta)
@@ -159,6 +178,11 @@ func _physics_process(delta: float) -> void:
 		# 只有在没有重要服务器动作时才允许本地跳跃
 		if not is_doing_important_action and physics_module.handle_jump(input_data, self):
 			animation_module.set_anim_state(PetData.AnimState.JUMP)
+	else:
+		# 特殊处理程序化动画（如 FLY）：
+		# 我们依然需要应用移动推力，否则角色只会在原地起飞
+		if is_flying or is_server_moving:
+			physics_module.apply_movement(movement_data, self, delta)
 	
 	move_and_slide()
 	
@@ -255,6 +279,38 @@ func _on_position_set_received(pos: Vector3) -> void:
 func _on_scene_received(scene_name, _d): if scene_name == "welcome": _execute_welcome_scene()
 
 func _on_dynamic_scene_received(steps): _execute_dynamic_scene(steps)
+
+func _on_eqs_query_received(data: Dictionary) -> void:
+	var query_id = data.get("query_id", "")
+	var config = data.get("config", {})
+	
+	if query_id.is_empty() or config.is_empty():
+		_log("[EQS] Invalid query request")
+		return
+	
+	# 构建上下文
+	var context = {
+		"querier_position": [global_position.x, global_position.y, global_position.z],
+		"target_position": null,
+		"enemy_positions": []
+	}
+	
+	# 从查询配置中获取目标位置（服务端会提供）
+	if config.has("context"):
+		var server_context = config.get("context", {})
+		if server_context.has("target_position"):
+			context["target_position"] = server_context.get("target_position")
+		if server_context.has("enemy_positions"):
+			context["enemy_positions"] = server_context.get("enemy_positions", [])
+	
+	# 执行查询（异步）
+	eqs_adapter.execute_query(query_id, config, context)
+
+func _on_eqs_result_ready(query_id: String, response: Dictionary) -> void:
+	# 发送结果回服务端
+	if ws_client:
+		ws_client.send_message("eqs_result", response)
+		_log("[EQS] Sent result for query: %s (%d results)" % [query_id, response.get("results", []).size()])
 
 ## 处理地面点击事件
 func _on_ground_clicked(target_pos: Vector3) -> void:

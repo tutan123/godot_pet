@@ -47,15 +47,18 @@ func calculate_movement(input_data, current_position: Vector3, _delta: float):
 	# 2. 服务端指令移动
 	elif is_server_moving:
 		var to_target = (target_position - current_position)
+		var dist_horizontal = Vector2(to_target.x, to_target.z).length()
+		
 		if not is_flying:
 			to_target.y = 0 # 走路模式忽略 Y 轴差异
 		
 		var dist = to_target.length()
 		if dist > 0.1:
 			movement.direction = to_target.normalized()
-			movement.speed = walk_speed * 2.0 if is_flying else walk_speed
-			movement.target_anim_state = PetData.AnimState.JUMP if is_flying else PetData.AnimState.WALK
-			movement.tilt_target = 0.2 if is_flying else 0.1
+			# 飞行速度稍微快一点，且确保有足够的水平分量
+			movement.speed = run_speed * 1.2 if is_flying else walk_speed
+			movement.target_anim_state = PetData.AnimState.WALK # 基础动画状态
+			movement.tilt_target = 0.3 if is_flying else 0.1
 		else:
 			is_server_moving = false
 			is_flying = false
@@ -146,6 +149,14 @@ func handle_physics_push(character_body: CharacterBody3D) -> void:
 		var collision = character_body.get_slide_collision(i)
 		var collider = collision.get_collider()
 		if collider is RigidBody3D:
+			# 核心修复：只应用水平推力，防止垂直方向的反冲导致角色起飞
 			var push_dir = -collision.get_normal()
-			push_dir.y = 0
+			push_dir.y = 0 
+			push_dir = push_dir.normalized()
+			
+			# 使用冲量推球，但限制强度
 			collider.apply_central_impulse(push_dir * push_force)
+			
+			# 关键：如果角色被挤压向上，强制压制角色的垂直速度
+			if character_body.velocity.y > 0 and collision.get_normal().y < 0.5:
+				character_body.velocity.y *= 0.1

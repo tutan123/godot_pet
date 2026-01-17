@@ -12,6 +12,7 @@ signal move_to_received(target: Vector3)
 signal position_set_received(pos: Vector3)
 signal scene_received(scene_name: String, data: Dictionary)
 signal dynamic_scene_received(steps: Array)
+signal eqs_query_received(data: Dictionary)
 
 ## 节点引用（通过主控制器传递）
 var ws_client: Node
@@ -52,6 +53,9 @@ func handle_ws_message(type: String, data: Dictionary, animation_tree: Animation
 		"dynamic_scene":
 			if data.has("steps"):
 				dynamic_scene_received.emit(data["steps"])
+		"eqs_query":
+			# EQS 查询请求，转发给 EQS 适配器处理
+			eqs_query_received.emit(data)
 
 func _handle_single_action_data(action_data: Variant, animation_tree: AnimationTree) -> void:
 	var action_name = ""
