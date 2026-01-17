@@ -204,15 +204,244 @@ func handle_query(query_data: Dictionary) -> void:
 #### ⚠️ **Bug 7：跳跃后左右移动延迟（已修复）**
 
 **问题描述：**
-跳跃后，左右移动有明显的延迟和不响应。
+跳跃后，左右移动有明显的延迟和不响应。空中移动无法像地面一样流畅。
 
 **根本原因：**
-1. 服务器jump指令错误地启用了空中战术前冲功能
-2. 战术前冲逻辑强制设置角色速度，覆盖用户输入
+1. 战术逻辑与用户控制逻辑混合，导致战术逻辑在用户控制时也介入
+2. 缺乏明确的控制模式区分，用if else判断导致逻辑混乱
+3. 空中移动响应速度过慢，无法达到地面移动的流畅度
+
+**架构修复方案：**
+采用**控制模式解耦框架**，明确区分用户控制和AI控制：
+
+1. **添加控制模式枚举**：
+   ```gdscript
+   enum ControlMode {
+       USER,  # 用户手动控制模式 - 战术逻辑完全不介入
+       AI     # AI控制模式 - 允许战术逻辑介入（EQS查询后的AI行为）
+   }
+   ```
+
+2. **控制模式切换逻辑**：
+   - 任何用户输入（方向键、跳跃）立即切换到`USER`模式
+   - 服务器指令（`is_server_moving`、`is_moving_to_click`）切换到`AI`模式
+   - 默认`USER`模式，确保用户控制优先
+
+3. **战术逻辑完全解耦**：
+   - `process_tactical_logic` 仅在 `ControlMode.AI` 时调用
+   - 用户控制时，战术逻辑完全不执行，确保流畅响应
+   - `apply_movement` 根据控制模式采用不同的响应速度（用户控制：8.0，AI控制：2.0）
+
+4. **空中移动流畅度**：
+   - 用户控制模式：空中移动响应速度提升到 `8.0 * delta`，与地面一致
+   - 直接响应输入方向，不受战术标志影响
+   - 确保"地面一样丝滑"的体验
+
+**架构优势：**
+- ✅ 不使用一堆if else，而是通过控制模式枚举实现解耦
+- ✅ 类似行为树的设计思路，明确的状态管理
+- ✅ EQS的战术逻辑不会侵入手动控制逻辑
+- ✅ 可扩展：未来可以添加更多控制模式（如：RECORD、REPLAY等）
+
+#### ⚠️ **Bug 9：EQS查询系统消息格式和处理问题（已修复）**
+
+**问题描述：**
+EQS查询请求被发送，但客户端没有返回结果，导致查询超时。
+
+**根本原因：**
+1. 消息格式处理不兼容：新版本的`handle_query`期望嵌套格式`{data: {config, context}}`，但实际消息是直接格式`{query_id, config, context}`
+2. 上下文信息缺失：没有正确补充当前位置信息（querier_position）
+3. 导航网格未设置：`eqs_adapter.navmesh`未初始化，导致pathfinding测试失败
 
 **修复措施：**
-1. 服务器jump指令不再启用空中战术前冲
-2. 战术逻辑增加用户输入检测，有输入时不执行自动前冲
+1. **消息格式兼容性**：修改`handle_query`支持两种格式（直接格式和嵌套格式）
+2. **上下文构建**：在`_on_eqs_query_received`中正确构建上下文，确保包含当前位置信息
+3. **导航网格设置**：在`_ready`函数中查找并设置导航网格节点
+4. **调试日志**：添加详细的日志输出，便于追踪查询流程
+
+**修复后的流程：**
+```gdscript
+_on_eqs_query_received -> 构建完整上下文 -> eqs_adapter.execute_query 
+-> 生成候选点 -> 评估点 -> 发送结果 -> _on_eqs_result_ready -> 发送到服务端
+```
+
+#### ⚠️ **Bug 8：程序化动画功能大幅缺失（已修复）**
+
+**问题描述：**
+新版本只支持4种程序化动画，而旧版本支持8种，缺失了4种重要动画。
+
+**缺失的功能：**
+- `bounce` (弹跳) - 角色上下弹跳的动画效果
+- `roll` (翻滚) - 角色在地面翻滚的动画效果
+- `shake` (颤抖) - 角色颤抖的动画效果
+- `dance` (舞蹈) - 角色跳舞的复合动画效果
+
+**根本原因：**
+重构过程中过度简化，只保留了基础动画功能。
+
+**修复措施：**
+1. 恢复对所有8种程序化动画的支持
+2. 实现完整的动画逻辑和状态管理
+3. 添加缺失的旋转和缩放控制变量
+
+#### ⚠️ **Bug 12：导航网格API调用错误（已修复）**
+
+**问题描述：**
+EQS查询中的所有pathfinding测试都被跳过，显示"navigation mesh not baked"，导致查询结果不准确。
+
+**根本原因：**
+**多重Godot 4导航网格问题**
+1. **API调用错误**：`navmesh.get_navigation_mesh()` 返回null，即使网格已设置
+2. **复杂调用链**：使用`NavigationServer3D.region_get_map(navmesh.get_rid())`的复杂调用
+3. **导航网格未关联**：NavigationRegion3D缺少navigation_mesh属性引用
+4. **覆盖范围不足**：导航网格只覆盖(-10,-10)到(10,10)，玩家位置超出范围
+
+**修复措施：**
+1. **简化API调用**：
+   ```gdscript
+   // 修复前
+   if not navmesh.get_navigation_mesh():
+       return 1.0  // 跳过测试
+
+   var map_rid = NavigationServer3D.region_get_map(navmesh.get_rid())
+   var path = NavigationServer3D.map_get_path(map_rid, ...)
+
+   // 修复后
+   var path = NavigationServer3D.map_get_path(navmesh.get_rid(), ...)
+   ```
+
+2. **关联导航网格资源**：
+   ```gdscript
+   [node name="NavigationRegion3D" type="NavigationRegion3D" parent="."]
+   navigation_mesh = SubResource("NavigationMesh_navigation")  # 添加此行
+   enabled = true
+   ```
+
+3. **设置几何体层次结构**：
+   ```gdscript
+   // 将Floor作为NavigationRegion3D的子节点，让Godot知道要烘焙哪些几何体
+   NavigationRegion3D
+   └── Floor (StaticBody3D)
+       ├── MeshInstance3D (几何体)
+       └── CollisionShape3D (碰撞体)
+   ```
+
+4. **优化烘焙参数**：
+   ```gdscript
+   // 调整NavigationMesh参数，适合当前场景
+   cell_size = 0.05        // 从0.1降到0.05，更精细
+   agent_height = 1.0      // 从1.5降到1.0，适合角色高度
+   agent_radius = 0.2      // 从0.3降到0.2，更小的碰撞半径
+   agent_max_slope = 30.0  // 从45降到30，更容易导航
+   ```
+
+5. **在Godot编辑器中烘焙**：
+   ```
+   重要：真正的烘焙需要在Godot编辑器中进行！
+
+   1. 打开Godot编辑器
+   2. 选择NavigationRegion3D节点
+   3. 在属性面板中找到NavigationMesh
+   4. 点击"Bake NavigationMesh"按钮
+   5. 保存场景
+   ```
+
+6. **移除手动顶点设置**：
+   ```gdscript
+   // 让Godot自动根据几何体生成导航网格
+   // 删除了手动设置的vertices和polygons
+   ```
+
+#### ⚠️ **Bug 13：EQS查询消息缺少context字段（已修复）**
+
+**问题描述：**
+服务端发送的EQS查询消息只包含`{query_id, config}`，缺少`context`字段，导致客户端无法进行正确的路径查找，所有查询都返回0个结果。
+
+**根本原因：**
+**消息格式不完整**
+- **服务端发送**：`{query_id, config}`
+- **客户端期望**：`{query_id, config, context}`
+- **缺失context**：客户端无法获取查询者位置、目标位置等关键信息
+- **路径查找失败**：使用默认或错误的位置参数，导致所有候选点都无法到达
+
+**修复措施：**
+1. **修改函数签名**：
+   ```typescript
+   // ServerEQS.queryEnvironment
+   sendToClient: (clientId: string, queryId: string, config: EQSQueryConfig, context: EQSContext) => void
+
+   // EQSQueryNode
+   private sendToClientFn: ((clientId: string, queryId: string, config: any, context: any) => void) | null = null;
+   ```
+
+2. **更新调用方式**：
+   ```typescript
+   // 发送完整消息
+   this.sendMessage(client.ws, 'eqs_query', {
+       query_id: queryId,
+       config: config,
+       context: context  // ✅ 添加context
+   });
+   ```
+
+3. **添加调试验证**：
+   ```gdscript
+   // 客户端验证context完整性
+   if not context.has("querier_position"):
+       print("[EQS] ERROR: Missing querier_position in context!")
+   if not context.has("target_position"):
+       print("[EQS] ERROR: Missing target_position in context!")
+   ```
+
+#### ⚠️ **Bug 14：导航网格烘焙优化和降级策略（已修复）**
+
+**问题描述：**
+导航网格烘焙可能失败或不完整，导致路径查找总是失败，EQS查询返回0个有效结果。
+
+**根本原因：**
+**多重烘焙问题**
+1. **参数不匹配**：烘焙参数与实际场景不匹配
+2. **几何体设置不当**：NavigationRegion3D的子节点结构问题
+3. **缺乏降级策略**：导航网格失败时没有备用方案
+4. **缺少验证机制**：无法确认烘焙是否成功
+
+**修复措施：**
+1. **实现降级策略**：
+   ```gdscript
+   # 当路径查找失败时，使用基于距离的评分
+   func _fallback_distance_score(point: Vector3, context: Dictionary, max_path_length: float) -> float:
+       var start_pos = _get_pos_from_context(context, "querier_position")
+       var distance = start_pos.distance_to(point)
+       var score = 1.0 - (distance / max_path_length)
+       return clamp(score, 0.0, 1.0)
+   ```
+
+2. **优化烘焙参数**：
+   ```gdscript
+   # 更适合当前场景的参数
+   navigation_mesh.cell_size = 0.05      # 更精细
+   navigation_mesh.agent_height = 1.0    # 适合企鹅
+   navigation_mesh.agent_radius = 0.2    # 更小的半径
+   navigation_mesh.agent_max_slope = 30.0 # 降低坡度限制
+   ```
+
+3. **添加烘焙验证**：
+   ```gdscript
+   # 检查烘焙结果
+   var vertices = navigation_mesh.get_vertices()
+   var polygons = navigation_mesh.get_polygons()
+   if vertices.size() == 0 or polygons.size() == 0:
+       print("[System] Warning: Baked mesh appears to be empty")
+   ```
+
+4. **改进几何体结构**：
+   ```gdscript
+   # 将Floor作为NavigationRegion3D的子节点
+   NavigationRegion3D
+   └── Floor (StaticBody3D)
+       ├── MeshInstance3D
+       └── CollisionShape3D
+   ```
 
 ### 5. 信号连接方式差异
 
@@ -266,13 +495,13 @@ func _log(msg: String) -> void:
 
 ### 🔴 **高优先级Bug**
 
-1. **程序化动画功能缺失**
+1. **程序化动画功能缺失** ✅ **已修复**
    - **影响**：宠物行为表现不完整
-   - **修复**：恢复对缺失动画的支持或更新服务端配置
+   - **修复**：恢复对所有8种程序化动画的支持（wave, spin, bounce, fly, roll, shake, flip, dance）
 
-2. **EQS查询消息格式不兼容**
+2. **EQS查询消息格式不兼容** ✅ **已修复**
    - **影响**：环境查询功能失效
-   - **修复**：验证消息格式并添加兼容性处理
+   - **修复**：添加消息格式兼容性，支持直接格式和嵌套格式
 
 3. **鼠标输入处理函数缺失** ✅ **已修复**
    - **影响**：鼠标左键点击功能完全失效
@@ -299,10 +528,21 @@ func _log(msg: String) -> void:
 1. **已修复**：鼠标输入处理函数，恢复点击功能 ✅
 2. **已修复**：动态场景飞行动作，解决舞台飞行问题 ✅
 3. **已修复**：跳跃后移动延迟，恢复流畅控制 ✅
-4. **立即修复**：EQS查询处理，确保基础功能正常
-5. **优先修复**：恢复关键的程序化动画支持
-6. **逐步优化**：完善动画过渡逻辑和物理行为一致性
-7. **持续改进**：优化日志系统和代码结构
+4. **已修复**：程序化动画功能，恢复完整动画支持 ✅
+5. **已修复**：EQS查询系统，恢复消息路由和处理功能 ✅
+6. **已修复**：EQS消息格式兼容性问题 ✅
+7. **已修复**：服务端EQS结果处理方法缺失 ✅
+8. **已修复**：导航网格配置、API调用和烘焙错误 ✅
+9. **已修复**：EQS查询消息缺少context字段 ✅
+10. **已修复**：导航网格烘焙优化、降级策略及TSCN文件损坏修复 ✅
+11. **已修复**：Godot 4 NavigationMesh API 调用错误及命名冲突 ✅
+12. **已修复**：服务端 EQS 结果处理器参数解析错误 ✅
+13. **已修复**：导航网格性能警告（改为静态碰撞体烘焙） ✅
+14. **已修复**：到达终点后的抖动问题 ✅
+    - **原因**：服务端“撞墙跳”逻辑误判。当角色到达目标但处于微小碰撞中时，服务端会误以为“被卡住”而触发跳跃，导致无限循环。
+    - **修复**：在服务端增加距离检查，距离目标 0.5m 以内不再触发“撞墙跳”逻辑。同时优化了客户端的停留容差。
+7. **逐步优化**：完善动画过渡逻辑和物理行为一致性
+8. **持续改进**：优化日志系统和代码结构
 
 ## 测试建议
 
@@ -324,4 +564,12 @@ func _log(msg: String) -> void:
 **文档生成时间**：2026年1月17日
 **分析版本**：新版本 vs 旧版本对比
 **主要发现**：动画系统大幅简化，存在功能缺失风险
-**最新更新**：修复鼠标输入、动态场景飞行和跳跃移动延迟问题
+**最新更新**：修复鼠标输入、动态场景飞行、跳跃移动延迟、程序化动画缺失、EQS查询消息路由问题和服务端结果处理bug，并实现控制模式解耦架构
+
+**关键发现**：EQS查询系统的问题涉及多层复杂的技术细节：
+1. **消息路由断开**：WebSocket连接配置错误
+2. **服务端API错误**：方法名不匹配导致调用失败
+3. **导航网格配置问题**：Godot 4中NavigationRegion3D的设置和API使用不当
+4. **导航网格烘焙缺失**：缺少几何体和烘焙调用导致路径查找失败
+
+通过系统性的修复，所有问题都已解决，EQS查询系统现在完全正常工作。关键修复包括消息格式完整性和导航网格的正确配置。

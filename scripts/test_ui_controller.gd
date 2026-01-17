@@ -39,16 +39,16 @@ func test_reconnect_button_state_update():
 	# 由于需要实际的 UI 节点，这里测试逻辑函数
 	
 	# 模拟连接状态变化
-	var is_connected = false
-	var button_disabled = is_connected
-	var button_text = "Connected" if is_connected else "Reconnect"
+	var _test_conn = false
+	var button_disabled = _test_conn
+	var button_text = "Connected" if _test_conn else "Reconnect"
 	
 	assert_false(button_disabled, "未连接时按钮应该可用")
 	assert_eq(button_text, "Reconnect", "未连接时按钮文本应该是 Reconnect")
 	
-	is_connected = true
-	button_disabled = is_connected
-	button_text = "Connected" if is_connected else "Reconnect"
+	_test_conn = true
+	button_disabled = _test_conn
+	button_text = "Connected" if _test_conn else "Reconnect"
 	
 	assert_true(button_disabled, "连接时按钮应该禁用")
 	assert_eq(button_text, "Connected", "连接时按钮文本应该是 Connected")

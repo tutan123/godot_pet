@@ -23,6 +23,12 @@ enum ProcAnimType {
 	DANCE
 }
 
+## 控制模式枚举 - 解耦用户控制与AI战术
+enum ControlMode {
+	USER,      # 用户手动控制模式 - 战术逻辑完全不介入
+	AI         # AI控制模式 - 允许战术逻辑介入（EQS查询后的AI行为）
+}
+
 ## 移动数据类
 class MovementData:
 	var direction: Vector3

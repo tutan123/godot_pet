@@ -42,19 +42,38 @@ func _get_pos_from_context(context: Dictionary, key: String, default: Vector3 = 
 
 ## 处理来自服务端的查询
 ## @param query_data: 从WebSocket消息的data字段提取的字典
+## 支持两种消息格式：
+## 1. 直接格式: {query_id: "...", config: {...}, context: {...}}
+## 2. 嵌套格式: {query_id: "...", data: {config: {...}, context: {...}}}
 func handle_query(query_data: Dictionary) -> void:
 	var query_id = query_data.get("query_id", "")
-	var data = query_data.get("data", {})
-
+	
 	if query_id.is_empty():
 		push_warning("[EQSAdapter] Query ID is empty")
 		return
 
+	# 尝试从嵌套格式获取config和context
+	var data = query_data.get("data", {})
 	var config = data.get("config", {})
 	var context = data.get("context", {})
+	
+	# 如果不是嵌套格式，尝试直接格式
+	if config.is_empty():
+		config = query_data.get("config", {})
+	
+	# 如果context在config中（旧版本格式）
+	if context.is_empty() and config.has("context"):
+		var server_context = config.get("context", {})
+		context = server_context
+	
+	# 如果仍然没有context，构建默认上下文
+	if context.is_empty():
+		# 从pet_controller获取位置信息（需要通过回调或参数传递）
+		# 这里先构建空上下文，实际位置会在execute_query中补充
+		context = {}
 
 	if config.is_empty():
-		push_warning("[EQSAdapter] Query config is empty")
+		push_warning("[EQSAdapter] Query config is empty. Data: %s" % query_data)
 		return
 
 	execute_query(query_id, config, context)
@@ -64,20 +83,42 @@ func handle_query(query_data: Dictionary) -> void:
 ## @param config: 查询配置（来自服务端）
 ## @param context: 查询上下文
 func execute_query(query_id: String, config: Dictionary, context: Dictionary) -> void:
+	print("[EQSAdapter] === Starting query %s ===" % query_id)
+	print("[EQSAdapter] Config: %s" % str(config))
+	print("[EQSAdapter] Context: %s" % str(context))
+
+	# 验证context完整性
+	if not context.has("querier_position"):
+		print("[EQS] ERROR: Missing querier_position in context!")
+	if not context.has("target_position"):
+		print("[EQS] ERROR: Missing target_position in context!")
+	if not context.has("enemy_positions"):
+		print("[EQS] WARNING: Missing enemy_positions in context, using empty array")
+		context["enemy_positions"] = []
+
 	# 记录开始时间
 	query_start_times[query_id] = Time.get_ticks_msec()
-	
+
 	var generator_type = config.get("generator", {}).get("type", "")
 	var generator_params = config.get("generator", {}).get("params", {})
 	var tests = config.get("tests", [])
 	var options = config.get("options", {})
-	
+
+	print("[EQSAdapter] Generator type: %s, params: %s" % [generator_type, str(generator_params)])
+	print("[EQSAdapter] Tests: %s" % str(tests))
+
 	# 1. 生成候选点
 	var candidate_points = _generate_points(generator_type, generator_params, context)
-	
+
 	if candidate_points.is_empty():
+		print("[EQSAdapter] ERROR: No candidate points generated for query %s" % query_id)
 		_send_result(query_id, [], "No candidate points generated")
 		return
+
+	print("[EQSAdapter] SUCCESS: Generated %d candidate points for query %s" % [candidate_points.size(), query_id])
+
+	for i in range(min(3, candidate_points.size())):
+		print("[EQSAdapter] Candidate %d: %s" % [i, str(candidate_points[i])])
 	
 	# 2. 执行测试，评估每个点
 	var results: Array[Dictionary] = []
@@ -102,6 +143,7 @@ func execute_query(query_id: String, config: Dictionary, context: Dictionary) ->
 		results = results.slice(0, max_results)
 	
 	# 5. 发送结果
+	print("[EQSAdapter] Query %s completed: %d valid results" % [query_id, results.size()])
 	_send_result(query_id, results)
 
 ## 生成候选点
@@ -121,22 +163,31 @@ func _generate_points(type: String, params: Dictionary, context: Dictionary) -> 
 
 ## 圆形生成器
 func _generate_circle(params: Dictionary, context: Dictionary) -> Array[Vector3]:
+	print("[EQSAdapter] _generate_circle called with params: %s" % str(params))
+	print("[EQSAdapter] Context: %s" % str(context))
+
 	var radius = params.get("radius", 10.0)
 	var points_count = params.get("points_count", 16)
 	var generate_around = params.get("generate_around", "Querier")
 	var target_height = params.get("target_height", null)  # 新增：目标高度（用于舞台等）
 
+	print("[EQSAdapter] radius=%f, points_count=%d, generate_around=%s" % [radius, points_count, generate_around])
+
 	var center: Vector3
 	match generate_around:
 		"Querier":
 			center = _get_pos_from_context(context, "querier_position")
+			print("[EQSAdapter] Using querier position as center: %s" % str(center))
 		"Target":
 			center = _get_pos_from_context(context, "target_position")
+			print("[EQSAdapter] Using target position as center: %s" % str(center))
 		_:
 			center = Vector3.ZERO
+			print("[EQSAdapter] Using zero as center")
 
 	# 如果指定了目标高度，使用目标高度；否则使用center的Y坐标
 	var y_level = target_height if target_height != null else center.y
+	print("[EQSAdapter] Y level: %f" % y_level)
 
 	var points: Array[Vector3] = []
 	var angle_step = TAU / points_count
@@ -150,6 +201,7 @@ func _generate_circle(params: Dictionary, context: Dictionary) -> Array[Vector3]
 		)
 		points.append(pos)
 
+	print("[EQSAdapter] Generated %d points for circle" % points.size())
 	return points
 
 ## 网格生成器
@@ -186,7 +238,7 @@ func _generate_grid(params: Dictionary, context: Dictionary) -> Array[Vector3]:
 	return points
 
 ## 路径生成器
-func _generate_on_path(params: Dictionary, context: Dictionary) -> Array[Vector3]:
+func _generate_on_path(params: Dictionary, _context: Dictionary) -> Array[Vector3]:
 	var path_points = params.get("path_points", [])
 	var points_per_segment = params.get("points_per_segment", 5)
 	
@@ -426,7 +478,7 @@ func _test_dot(point: Vector3, params: Dictionary, context: Dictionary) -> float
 	return clamp(score, 0.0, 1.0)
 
 ## 重叠测试
-func _test_overlap(point: Vector3, params: Dictionary, context: Dictionary) -> float:
+func _test_overlap(point: Vector3, params: Dictionary, _context: Dictionary) -> float:
 	var overlap_shape = params.get("overlap_shape", null)
 	var require_no_overlap = params.get("require_no_overlap", true)
 	
@@ -459,21 +511,30 @@ func _test_overlap(point: Vector3, params: Dictionary, context: Dictionary) -> f
 func _test_pathfinding(point: Vector3, params: Dictionary, context: Dictionary) -> float:
 	var max_path_length = params.get("max_path_length", 100.0)
 	var require_path_exists = params.get("require_path_exists", true)
+	var allow_fallback = params.get("allow_fallback", true)  # 新增：是否允许降级策略
 
 	if not navmesh:
 		print("[EQS] Pathfinding test skipped: no navigation mesh")
-		return 1.0  # 没有导航网格，跳过测试
+		return _fallback_distance_score(point, context, max_path_length)
 
 	var start_pos = _get_pos_from_context(context, "querier_position")
 	var end_pos = point
 
-	# 检查导航网格是否有效
-	if not navmesh.get_navigation_mesh():
-		print("[EQS] Pathfinding test skipped: navigation mesh not baked")
-		return 1.0
+	# 调试：检查导航网格状态
+	var navigation_mesh = navmesh.get_navigation_mesh()
+	if not navigation_mesh:
+		print("[EQS] Navigation mesh is null, using fallback")
+		return _fallback_distance_score(point, context, max_path_length)
 
-	# 获取正确的map RID并使用NavigationServer3D
-	var map_rid = NavigationServer3D.region_get_map(navmesh.get_rid())
+	# 调试：检查RID是否有效
+	var map_rid = navmesh.get_rid()
+	if map_rid == RID():
+		print("[EQS] Navigation mesh RID is invalid, using fallback")
+		return _fallback_distance_score(point, context, max_path_length)
+
+	print("[EQS] Testing path from %s to %s" % [start_pos, end_pos])
+
+	# 直接使用navmesh RID进行路径查找（参考老版本实现）
 	var path = NavigationServer3D.map_get_path(
 		map_rid,
 		start_pos,
@@ -482,9 +543,13 @@ func _test_pathfinding(point: Vector3, params: Dictionary, context: Dictionary) 
 	)
 
 	if path.is_empty():
+		print("[EQS] No path found from %s to %s" % [start_pos, end_pos])
 		if require_path_exists:
-			print("[EQS] No path found from %s to %s" % [start_pos, end_pos])
-			return -1.0
+			if allow_fallback:
+				print("[EQS] Using fallback distance-based scoring")
+				return _fallback_distance_score(point, context, max_path_length)
+			else:
+				return -1.0
 		return 0.0
 
 	# 计算路径长度
@@ -492,15 +557,77 @@ func _test_pathfinding(point: Vector3, params: Dictionary, context: Dictionary) 
 	for i in range(path.size() - 1):
 		path_length += path[i].distance_to(path[i + 1])
 
+	print("[EQS] Path found with length: %.2f" % path_length)
+
 	if path_length > max_path_length:
 		print("[EQS] Path too long: %.2f > %.2f" % [path_length, max_path_length])
+		if allow_fallback:
+			print("[EQS] Path too long, using fallback distance scoring")
+			return _fallback_distance_score(point, context, max_path_length)
 		return -1.0
 
 	# 路径越短分数越高
 	var score = 1.0 - (path_length / max_path_length)
 	var clamped_score = clamp(score, 0.0, 1.0)
 
+	print("[EQS] Pathfinding score: %.3f" % clamped_score)
 	return clamped_score
+
+## 降级策略：基于距离的评分
+func _fallback_distance_score(point: Vector3, context: Dictionary, max_path_length: float) -> float:
+	var start_pos = _get_pos_from_context(context, "querier_position")
+	var distance = start_pos.distance_to(point)
+
+	print("[EQS] Fallback: distance from %s to %s is %.2f" % [start_pos, point, distance])
+
+	# 距离越近分数越高（与路径查找相反，更喜欢近的点）
+	var score = 1.0 - (distance / max_path_length)
+	var clamped_score = clamp(score, 0.0, 1.0)
+
+	print("[EQS] Fallback distance score: %.3f" % clamped_score)
+	return clamped_score
+
+## 重新烘焙导航网格（调试用）
+func rebake_navigation_mesh() -> void:
+	if not navmesh:
+		print("[EQS] No navigation mesh to rebake")
+		return
+
+	print("[EQS] Rebaking navigation mesh...")
+
+	if navmesh.has_method("bake_navigation_mesh"):
+		navmesh.bake_navigation_mesh()
+
+		# 等待烘焙完成
+		await navmesh.get_tree().process_frame
+
+		_verify_navigation_mesh()
+	else:
+		print("[EQS] bake_navigation_mesh method not available")
+
+## 验证导航网格状态
+func _verify_navigation_mesh() -> void:
+	if not navmesh:
+		print("[EQS] No navigation mesh to verify")
+		return
+
+	var navigation_mesh = navmesh.get_navigation_mesh()
+	if not navigation_mesh:
+		print("[EQS] Navigation mesh resource is null")
+		return
+
+	var vertices = navigation_mesh.vertices
+	var poly_count = navigation_mesh.get_polygon_count()
+
+	print("[EQS] Navigation mesh verification:")
+	print("[EQS]   - Vertices: %d" % vertices.size())
+	print("[EQS]   - Polygons: %d" % poly_count)
+	print("[EQS]   - RID valid: %s" % (navmesh.get_rid() != RID()))
+
+	if vertices.size() == 0 or poly_count == 0:
+		print("[EQS] Warning: Navigation mesh appears to be empty")
+	else:
+		print("[EQS] Navigation mesh looks good")
 
 ## 发送结果
 func _send_result(query_id: String, results: Array, error: String = "") -> void:
@@ -513,7 +640,7 @@ func _send_result(query_id: String, results: Array, error: String = "") -> void:
 		"status": "success" if error.is_empty() else "error",
 		"results": results,
 		"execution_time_ms": execution_time,
-		"error": error if not error.is_empty() else null
+		"error": error if not error.is_empty() else ""
 	}
 	
 	# 通过信号通知，由pet_controller发送

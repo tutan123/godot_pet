@@ -54,12 +54,14 @@ func handle_input_event(event: InputEvent, character_body: CharacterBody3D, mesh
 				
 				click_start_time = 0
 				
-	elif event is InputEventMouseMotion and click_start_time > 0:
-		var mouse_move = (get_viewport().get_mouse_position() - drag_start_mouse_pos).length()
-		if not is_dragging and mouse_move > drag_threshold:
-			is_dragging = true
-			interaction_sent.emit("drag_start", {"position": [character_body.global_position.x, character_body.global_position.y, character_body.global_position.z]})
-			drag_started.emit()
+	elif event is InputEventMouseMotion:
+		# 即使鼠标移出了角色范围，只要按下了左键（click_start_time > 0），就继续检测拖拽启动
+		if click_start_time > 0:
+			var mouse_move = (get_viewport().get_mouse_position() - drag_start_mouse_pos).length()
+			if not is_dragging and mouse_move > drag_threshold:
+				is_dragging = true
+				interaction_sent.emit("drag_start", {"position": [character_body.global_position.x, character_body.global_position.y, character_body.global_position.z]})
+				drag_started.emit()
 
 ## 处理拖拽
 func handle_dragging(delta: float, character_body: CharacterBody3D, mesh_root: Node3D, proc_time: float) -> void:

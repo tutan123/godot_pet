@@ -175,7 +175,7 @@ func send_state_sync(character_body: CharacterBody3D, current_anim_state: int, i
 
 	# 获取舞台位置
 	var stage_position = null
-	var stage_node = character_body.get_node_or_null("/root/Main/StageDecor/Stage")
+	var stage_node = character_body.get_node_or_null("/root/Main/NavigationRegion3D/StageDecor/Stage")
 	if stage_node:
 		stage_position = [stage_node.global_position.x, stage_node.global_position.y, stage_node.global_position.z]
 

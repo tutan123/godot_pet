@@ -152,12 +152,12 @@ func _on_voice_button_down() -> void:
 		_log("[color=red]System: ASR服务未初始化[/color]")
 		return
 	
-	if not asr_client.is_connected:
+	if not asr_client._is_connected_to_asr:
 		_log("[color=yellow]System: 正在连接ASR服务...[/color]")
 		asr_client.connect_to_server()
 		await get_tree().create_timer(0.5).timeout
 	
-	if not asr_client.is_connected:
+	if not asr_client._is_connected_to_asr:
 		_log("[color=red]System: 无法连接到ASR服务[/color]")
 		return
 	

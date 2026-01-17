@@ -7,7 +7,6 @@ extends Node
 const PetData = preload("res://scripts/pet_data.gd")
 
 ## 信号定义
-signal movement_calculated(movement_data)
 signal jump_triggered(velocity_y: float)
 signal collision_detected(collision_data: Dictionary)
 
@@ -51,16 +50,22 @@ func calculate_movement(input_data, current_position: Vector3, _delta: float):
 	elif is_server_moving:
 		var to_target = (target_position - current_position)
 		if not is_flying: to_target.y = 0
-		if to_target.length() > 0.1:
+		
+		var dist = to_target.length()
+		# 增加容差：只有距离大于 0.25 米才继续移动
+		# 修复抽搐：当距离接近 0.25m 时，平滑减速，而不是突然停止
+		if dist > 0.25:
 			movement.direction = to_target.normalized()
-			movement.speed = run_speed if not is_flying else run_speed * 1.2
-			# 关键：根据速度决定动画状态
+			# 速度随距离衰减，防止过冲
+			var speed_factor = clamp(dist / 1.0, 0.5, 1.0)
+			movement.speed = (run_speed if not is_flying else run_speed * 1.2) * speed_factor
 			movement.target_anim_state = PetData.AnimState.RUN if not is_flying else PetData.AnimState.WALK
 			movement.tilt_target = 0.3 if is_flying else 0.1
 		else:
 			is_server_moving = false
 			is_flying = false
 			movement.target_anim_state = PetData.AnimState.IDLE
+			print("[Physics] Arrival deadzone hit, stopping velocity.")
 			
 	else:
 		movement.target_anim_state = PetData.AnimState.IDLE
@@ -78,12 +83,9 @@ func apply_physics(character_body: CharacterBody3D, delta: float) -> void:
 		character_body.velocity.y = -0.1
 
 ## 执行空中战术动作 (核心解耦点)
-## @param input_data: 当前输入数据，用于判断是否有用户输入
-func process_tactical_logic(character_body: CharacterBody3D, input_data = null):
-	# 如果有用户输入，不执行战术前冲，避免干扰用户控制
-	if input_data and input_data.direction.length() > 0.1:
-		return null
-
+## 注意：此函数仅在AI控制模式下调用，用户控制时完全不介入
+## 战术逻辑由EQS查询后的AI决策触发，不会影响用户手动控制
+func process_tactical_logic(character_body: CharacterBody3D, _input_data = null):
 	if _jump_push_pending and not character_body.is_on_floor() and character_body.velocity.y > 0:
 		var gain = character_body.global_position.y - _jump_start_height
 		if gain > _jump_phase_2_threshold:
@@ -106,22 +108,34 @@ func execute_jump(character_body: CharacterBody3D, with_push: bool = false):
 	return "Jump phase 1: Vertical lift-off (v_y: %.1f)" % jump_velocity
 
 ## 应用移动速度
-func apply_movement(movement_data, character_body: CharacterBody3D, delta: float) -> void:
-	# 核心修复：移除上升期的 return 阻断，改为“叠加”或“保护”模式
+## @param control_mode: 控制模式（PetData.ControlMode），用于判断是否为用户控制
+func apply_movement(movement_data, character_body: CharacterBody3D, delta: float, control_mode: int = PetData.ControlMode.USER) -> void:
 	var is_jumping_up = character_body.velocity.y > 0.1
+	var is_user_control = control_mode == PetData.ControlMode.USER
 	
 	if is_jumping_up:
-		if _jump_push_pending:
-			# 战术起跳第一阶段：暂时锁定水平速度，等待拔高
-			return 
-		else:
-			# 跳跃过程中，允许水平惯性继续存在，并接受微弱修正
+		# 用户控制时：空中移动和地面一样丝滑，直接响应输入
+		if is_user_control:
 			var target_x = movement_data.direction.x * movement_data.speed
 			var target_z = movement_data.direction.z * movement_data.speed
 			if movement_data.direction.length() > 0.05:
-				character_body.velocity.x = lerp(character_body.velocity.x, target_x, 2.0 * delta)
-				character_body.velocity.z = lerp(character_body.velocity.z, target_z, 2.0 * delta)
+				# 用户控制时使用更快的响应速度，确保流畅
+				character_body.velocity.x = lerp(character_body.velocity.x, target_x, 8.0 * delta)
+				character_body.velocity.z = lerp(character_body.velocity.z, target_z, 8.0 * delta)
 			return
+		else:
+			# AI控制模式：支持战术逻辑
+			if _jump_push_pending:
+				# 战术起跳第一阶段：暂时锁定水平速度，等待拔高
+				return 
+			else:
+				# 跳跃过程中，允许水平惯性继续存在，并接受微弱修正
+				var target_x = movement_data.direction.x * movement_data.speed
+				var target_z = movement_data.direction.z * movement_data.speed
+				if movement_data.direction.length() > 0.05:
+					character_body.velocity.x = lerp(character_body.velocity.x, target_x, 2.0 * delta)
+					character_body.velocity.z = lerp(character_body.velocity.z, target_z, 2.0 * delta)
+				return
 
 	# 常规地面移动逻辑
 	if movement_data.direction.length() > 0.05:
@@ -132,8 +146,8 @@ func apply_movement(movement_data, character_body: CharacterBody3D, delta: float
 		character_body.velocity.x = lerp(character_body.velocity.x, 0.0, 10.0 * delta)
 		character_body.velocity.z = lerp(character_body.velocity.z, 0.0, 10.0 * delta)
 	
-	# 朝向处理
-	if movement_data.direction.length() > 0.1:
+	# 朝向处理：只有当移动矢量足够显著时才更新朝向，防止微小位移导致的“原地打转”
+	if movement_data.direction.length() > 0.2:
 		var target_rotation = atan2(movement_data.direction.x, movement_data.direction.z)
 		character_body.rotation.y = lerp_angle(character_body.rotation.y, target_rotation, rotation_speed * delta)
 

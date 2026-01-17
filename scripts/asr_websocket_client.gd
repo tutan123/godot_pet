@@ -11,7 +11,7 @@ signal error_occurred(message: String)
 @export var asr_websocket_url: String = "ws://localhost:8000/api/v1/realtime"
 
 var socket := WebSocketPeer.new()
-var is_connected: bool = false
+var _is_connected_to_asr: bool = false
 var session_id: String = ""
 var is_recording: bool = false
 
@@ -24,7 +24,7 @@ func _ready() -> void:
 func connect_to_server() -> void:
 	if socket.get_ready_state() == WebSocketPeer.STATE_OPEN or socket.get_ready_state() == WebSocketPeer.STATE_CONNECTING:
 		socket.close()
-		is_connected = false
+		_is_connected_to_asr = false
 	
 	# 【核心修复】扩容缓冲区，防止 Error 6 (ERR_OUT_OF_MEMORY)
 	# 48kHz PCM 数据很大，默认 64KB 缓冲区不够用
@@ -46,8 +46,8 @@ func _process(delta: float) -> void:
 	var state = socket.get_ready_state()
 	
 	if state == WebSocketPeer.STATE_OPEN:
-		if not is_connected:
-			is_connected = true
+		if not _is_connected_to_asr:
+			_is_connected_to_asr = true
 			print("Connected to ASR server!")
 		
 		# 读取待处理消息
@@ -59,17 +59,17 @@ func _process(delta: float) -> void:
 	elif state == WebSocketPeer.STATE_CLOSING:
 		pass
 	elif state == WebSocketPeer.STATE_CLOSED:
-		if is_connected:
-			is_connected = false
+		if _is_connected_to_asr:
+			_is_connected_to_asr = false
 			print("Disconnected from ASR server.")
 			session_id = ""
 
 func start_session() -> void:
-	if not is_connected:
+	if not _is_connected_to_asr:
 		connect_to_server()
 		# 等待连接建立
 		await get_tree().create_timer(0.5).timeout
-		if not is_connected:
+		if not _is_connected_to_asr:
 			error_occurred.emit("无法连接到ASR服务")
 			return
 	
@@ -96,7 +96,7 @@ func start_session() -> void:
 	_send_json(message)
 
 func send_audio(audio_data: PackedByteArray) -> void:
-	if not is_connected:
+	if not _is_connected_to_asr:
 		# 只有在完全没有网络连接时才跳过
 		return
 	

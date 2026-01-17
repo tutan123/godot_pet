@@ -20,6 +20,8 @@ var proc_anim_type: int = PetData.ProcAnimType.NONE
 var proc_time: float = 0.0
 var tilt_angle: float = 0.0
 var current_action_state: Dictionary = {}
+var proc_rot_y: float = 0.0
+var proc_rot_x: float = 0.0
 
 ## 设置动画状态
 func set_anim_state(new_state: int, force: bool = false) -> void:
@@ -60,12 +62,18 @@ func switch_anim(anim_name: String) -> void:
 	# 2. 基础移动状态
 	var base_animations = ["idle", "stand", "walk", "run", "jump"]
 	if normalized_name in base_animations:
+		# 映射：如果 idle 不存在，尝试 stand
+		var target_anim = normalized_name
+		if target_anim == "idle" and anim_player and not anim_player.has_animation("idle"):
+			if anim_player.has_animation("stand"):
+				target_anim = "stand"
+		
 		if anim_player and anim_player.is_playing():
-			if not normalized_name in anim_player.current_animation:
+			if not target_anim in anim_player.current_animation:
 				anim_player.stop()
 		
 		clear_procedural_anim_state()
-		set_anim_state(string_to_anim_state(normalized_name))
+		set_anim_state(string_to_anim_state(target_anim))
 		return
 	
 	# 3. 片段播放
@@ -96,23 +104,46 @@ func normalize_action_name(n: String) -> String:
 	return n.to_lower()
 
 func is_procedural_anim(n: String) -> bool:
-	return n in ["fly", "wave", "flip", "spin"]
+	return n in ["wave", "spin", "bounce", "fly", "roll", "shake", "flip", "dance"]
 
 func clear_procedural_anim_state() -> void:
+	if proc_anim_type == PetData.ProcAnimType.WAVE or proc_anim_type == PetData.ProcAnimType.FLIP:
+		# 恢复动画树控制
+		if animation_tree: animation_tree.active = true
+
+	if proc_anim_type == PetData.ProcAnimType.SPIN or proc_anim_type == PetData.ProcAnimType.DANCE:
+		proc_rot_y = 0.0
+	if proc_anim_type == PetData.ProcAnimType.FLIP:
+		proc_rot_x = 0.0
+
 	proc_anim_type = PetData.ProcAnimType.NONE
-	if animation_tree:
-		animation_tree.active = true
 
 func set_procedural_anim(n: String) -> void:
 	match n:
-		"fly":
-			proc_anim_type = PetData.ProcAnimType.FLY
-		"wave":
-			proc_anim_type = PetData.ProcAnimType.WAVE
 		"flip":
 			proc_anim_type = PetData.ProcAnimType.FLIP
+			proc_rot_x = 0.0
+			proc_time = 0.0
+			if animation_tree: animation_tree.active = false
+		"wave":
+			proc_anim_type = PetData.ProcAnimType.WAVE
+			proc_time = 0.0
+			if animation_tree: animation_tree.active = false
 		"spin":
 			proc_anim_type = PetData.ProcAnimType.SPIN
+			proc_rot_y = 0.0
+		"bounce":
+			proc_anim_type = PetData.ProcAnimType.BOUNCE
+		"fly":
+			proc_anim_type = PetData.ProcAnimType.FLY
+			proc_time = 0.0
+		"roll":
+			proc_anim_type = PetData.ProcAnimType.ROLL
+		"shake":
+			proc_anim_type = PetData.ProcAnimType.SHAKE
+		"dance":
+			proc_anim_type = PetData.ProcAnimType.DANCE
+			proc_rot_y = 0.0
 
 func string_to_anim_state(n: String) -> int:
 	match n:
@@ -129,15 +160,81 @@ func anim_state_to_string(state: int) -> String:
 		PetData.AnimState.WAVE: return "wave"
 		_: return "idle"
 
-func apply_procedural_fx(delta: float, _is_dragging: bool) -> void:
+func _apply_arm_wave_animation(_delta: float) -> void:
+	# 简化版本：新版本可能不支持骨骼动画，直接返回
+	pass
+
+func apply_procedural_fx(delta: float, is_dragging: bool) -> void:
 	if not mesh_root:
 		return
+
 	proc_time += delta
-	if proc_anim_type == PetData.ProcAnimType.FLY:
-		# 飞行时的悬浮效果：相对于当前位置轻微上下浮动
-		var base_height = 0.0  # 飞行时的基线高度
-		var hover_offset = sin(proc_time * 2.0) * 0.1  # 轻微的上下浮动
-		mesh_root.position.y = lerp(mesh_root.position.y, base_height + hover_offset, 3.0 * delta)
-	else:
-		# 非飞行状态：平滑回到地面高度
-		mesh_root.position.y = lerp(mesh_root.position.y, 0.0, 5.0 * delta)
+
+	# 初始化目标值
+	var target_pos_y: float = 0.0
+	var target_rot_z: float = 0.0
+	var target_scale_y: float = 0.0
+
+	# A. 基础呼吸感 (仅在 Idle 时)
+	if current_anim_state == PetData.AnimState.IDLE:
+		target_pos_y = sin(proc_time * 2.0) * 0.05
+
+	# B. 根据当前活跃的程序化动作计算目标值
+	match proc_anim_type:
+		PetData.ProcAnimType.WAVE:
+			# 整体摆动
+			target_rot_z = sin(proc_time * 15.0) * 0.15
+			target_scale_y = 0.3 * (1.0 + sin(proc_time * 10.0) * 0.05)
+			# 右手挥舞
+			_apply_arm_wave_animation(delta)
+		PetData.ProcAnimType.SPIN:
+			proc_rot_y += delta * 20.0
+		PetData.ProcAnimType.BOUNCE:
+			target_pos_y = abs(sin(proc_time * 10.0)) * 0.5
+			target_scale_y = 0.3 * (1.0 - target_pos_y * 0.2)
+		PetData.ProcAnimType.FLY:
+			# 飞行时的悬浮效果：相对于当前位置轻微上下浮动
+			var base_height = 0.0  # 飞行时的基线高度
+			var hover_offset = sin(proc_time * 2.0) * 0.1  # 轻微的上下浮动
+			target_pos_y = base_height + hover_offset
+		PetData.ProcAnimType.ROLL:
+			target_rot_z += delta * 15.0
+		PetData.ProcAnimType.SHAKE:
+			mesh_root.position.x = sin(proc_time * 25.0) * 0.1
+			target_rot_z = sin(proc_time * 20.0) * 0.1
+		PetData.ProcAnimType.FLIP:
+			var flip_duration = 2.0
+			var t = clamp(proc_time / flip_duration, 0.0, 1.0)
+			var flip_speed = TAU / flip_duration
+			proc_rot_x = proc_time * flip_speed
+			target_pos_y = 0.6 * (4.0 * t * (1.0 - t))
+			if t > 0.15 and t < 0.85:
+				target_rot_z = sin(proc_time * 10.0) * 0.08
+		PetData.ProcAnimType.DANCE:
+			target_rot_z = sin(proc_time * 8.0) * 0.2
+			target_pos_y = abs(sin(proc_time * 6.0)) * 0.3
+			proc_rot_y += delta * 30.0
+			target_scale_y = 0.3 * (1.0 + sin(proc_time * 4.0) * 0.1)
+
+	# C. 拖拽时的特殊覆盖
+	if is_dragging:
+		target_rot_z = sin(proc_time * 10.0) * 0.2
+
+	# D. 最终平滑应用到模型
+	if proc_anim_type != PetData.ProcAnimType.SHAKE:  # SHAKE单独处理X轴
+		mesh_root.position.y = lerp(mesh_root.position.y, target_pos_y, 10.0 * delta)
+
+	# X轴旋转（FLIP）
+	if proc_anim_type == PetData.ProcAnimType.FLIP:
+		mesh_root.rotation.x = proc_rot_x
+
+	# Z轴旋转（各种动画）
+	mesh_root.rotation.z = lerp(mesh_root.rotation.z, target_rot_z, 15.0 * delta)
+
+	# Y轴旋转（SPIN, DANCE）
+	if proc_anim_type == PetData.ProcAnimType.SPIN or proc_anim_type == PetData.ProcAnimType.DANCE:
+		mesh_root.rotation.y = proc_rot_y
+
+	# 缩放（WAVE, BOUNCE, DANCE）
+	if target_scale_y > 0:
+		mesh_root.scale.y = lerp(mesh_root.scale.y, target_scale_y, 10.0 * delta)

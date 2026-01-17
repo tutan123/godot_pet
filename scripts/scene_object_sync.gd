@@ -15,7 +15,7 @@ var sync_timer: float = 0.0
 var tracked_objects: Dictionary = {}  # {node_path: object_id}
 
 func _ready():
-	# 查找场景中的小球
+	# 查找场景中的对象
 	_find_scene_objects()
 
 func _find_scene_objects():
@@ -24,12 +24,13 @@ func _find_scene_objects():
 	if not main:
 		return
 	
+	# 使用 find_child 进行更稳健的递归查找（因为节点层级可能变化）
 	# 1. 查找小球
-	var ball = main.get_node_or_null("PhysicsTest/Ball")
+	var ball = main.find_child("Ball", true, false)
 	if ball:
 		scene_objects.append(ball)
 		tracked_objects[ball.get_path()] = "ball"
-		print("[SceneObjectSync] Registered ball for sync")
+		print("[SceneObjectSync] Registered ball for sync at path: %s" % ball.get_path())
 
 	# 2. 查找主摄像机
 	var camera = get_viewport().get_camera_3d()
@@ -38,16 +39,18 @@ func _find_scene_objects():
 		tracked_objects[camera.get_path()] = "camera"
 		print("[SceneObjectSync] Registered camera for sync")
 	
-	# 3. 查找静态目标点（如果需要）
-	var stage = main.get_node_or_null("StageDecor/Stage")
+	# 3. 查找静态目标点
+	var stage = main.find_child("Stage", true, false)
 	if stage:
 		scene_objects.append(stage)
 		tracked_objects[stage.get_path()] = "stage"
+		print("[SceneObjectSync] Registered stage for sync")
 	
-	var ramp = main.get_node_or_null("PhysicsTest/Ramp")
+	var ramp = main.find_child("Ramp", true, false)
 	if ramp:
 		scene_objects.append(ramp)
 		tracked_objects[ramp.get_path()] = "ramp"
+		print("[SceneObjectSync] Registered ramp for sync")
 
 func _process(delta: float):
 	if not ws_client:
