@@ -197,43 +197,39 @@ graph TB
 
 **结论**：✅ **强烈推荐**
 
-### 推荐方案：混合架构
+### 推荐方案：混合架构 ✅ **已实现**
 
 **核心思路**：EQS 在客户端执行，但查询配置和结果通过 WebSocket 与行为树交互。
+
+**当前状态**：✅ **这是系统当前采用的架构方案**
 
 #### 架构图
 
 ```mermaid
-graph TB
-    subgraph Server["JS 服务端 (行为树决策层)"]
-        BT[BehaviorTree]
-        BT -->|需要查询位置| QueryReq[发送 EQS 查询请求<br/>eqs_query]
-        QueryReq -->|WebSocket| Client
-        Client -->|WebSocket| QueryRes[接收查询结果<br/>eqs_result]
-        QueryRes -->|使用结果| BT
-    end
-    
-    subgraph Client["Godot 客户端 (EQS 执行层)"]
-        Handler[EQSQueryHandler]
-        Handler -->|接收查询请求| CreateQuery[创建 EQSQuery]
-        CreateQuery -->|执行查询| Execute[执行查询]
-        Execute -->|Generator| Gen[生成候选点]
-        Execute -->|Tests| Test[评估每个点]
-        Execute -->|返回结果| Sort[排序后的结果]
-        Sort -->|发送结果| Handler
-        
-        Execute -.->|直接访问| Physics[PhysicsServer3D<br/>射线检测]
-        Execute -.->|直接访问| Nav[NavigationServer3D<br/>路径查找]
-        Execute -.->|直接访问| Scene[场景对象<br/>敌人、掩体等]
-    end
-    
-    QueryReq -.->|WebSocket| Handler
-    Handler -.->|WebSocket| QueryRes
-    
-    style Server fill:#fff4e1
-    style Client fill:#e1f5ff
-    style BT fill:#ffcccc
-    style Handler fill:#ccffcc
+graph TD
+    BT[BehaviorTree] -->|eqs_query| Handler[EQSQueryHandler]
+    Handler -->|create| Query[EQSQuery]
+    Query -->|execute| Generator[Generator]
+    Query -->|execute| Tests[Tests]
+    Generator -->|generate points| Points[Candidate Points]
+    Tests -->|evaluate| Scores[Scores]
+    Scores -->|sort| Results[Results]
+    Results -->|eqs_result| BT
+
+    Generator -.->|access| Physics[PhysicsServer3D]
+    Tests -.->|access| Physics
+    Generator -.->|access| Nav[NavigationServer3D]
+    Tests -.->|access| Nav
+    Generator -.->|access| Scene[Scene Objects]
+    Tests -.->|access| Scene
+
+    classDef server fill:#e1f5fe,stroke:#01579b
+    classDef client fill:#f3e5f5,stroke:#4a148c
+    classDef core fill:#e8f5e8,stroke:#1b5e20
+
+    class BT server
+    class Handler,Query,Generator,Tests,Points,Scores,Results client
+    class Physics,Nav,Scene core
 ```
 
 ### 实现方案
@@ -790,9 +786,9 @@ if (llmResponse.tool_calls) {
 
 **这样既支持 LLM 工具调用，又避免了多客户端的重复实现。**
 
-### 大模型联动场景：服务端 EQS 抽象层
+### 大模型联动场景：服务端 EQS 抽象层 ✅ **已实现**
 
-当接入大模型后，我们需要更智能的查询规划和分析能力。此时可以采用**双层 EQS 架构**：
+当前系统已实现双层EQS架构，支持大模型智能查询规划和分析：
 
 #### 架构图
 
@@ -1212,6 +1208,7 @@ flowchart TD
 |------|------|------|------|
 | **EQS 核心** | JS 服务端 | `AVATAR/q_llm_pet/services/bt/eqs/ServerEQS.ts` | 查询规划、结果分析、作为 LLM 工具 |
 | **EQS 适配器** | Godot 客户端 | `GAME/godot-pet/scripts/eqs_adapter.gd` | 3D 计算、生成器实现、测试器实现 |
+| **导航网格** | Godot 客户端 | `GAME/godot-pet/scenes/main.tscn` | 路径查找、避开障碍物 |
 | **行为树节点** | JS 服务端 | `AVATAR/q_llm_pet/services/bt/actions/EQSQueryNode.ts` | EQS 查询节点，集成到行为树 |
 | **通信层** | 双向 | `BTServer.ts` / `pet_controller.gd` | WebSocket 消息传递 |
 
@@ -1248,7 +1245,7 @@ sequenceDiagram
 
 EQS 可以作为 **ReActAgent 的工具之一**，在复杂场景中实现"推理 → 行动 → 观察 → 调整"的闭环。
 
-### 情况 A：单纯使用 EQS（当前架构）
+### 情况 A：单纯使用 EQS（当前架构）✅ **已实现**
 
 **适用场景**：指令意图明确，链路简单（查询 → 移动）。
 
@@ -1260,52 +1257,68 @@ EQS 可以作为 **ReActAgent 的工具之一**，在复杂场景中实现"推�
 **局限**：
 - ❌ 如果环境极其复杂（例如：小球在移动、路径被动态封死、需要分阶段移动），单纯的线性行为树（LLMCall → DynamicToolCall）很难处理"观察 → 调整"的过程
 
+**当前状态**：
+- ✅ **这是系统当前的主要使用模式**
+- ✅ **通过 LLM 工具直接调用 EQS**
+- ✅ **EQSQueryNode 已实现但未在行为树中显式使用**
+
 **架构流程**：
 ```
-LLM → EQS工具调用 → 查询结果 → 行为树执行移动
+LLM → EQS工具调用 → ServerEQS规划 → 客户端3D计算 → 结果返回 → 移动执行
 ```
 
-**示例**：
+**实际示例**：
 ```typescript
-// 简单场景：直接查询并移动
-LLM调用: queryEnvironment({ goal: "找个安全的地方" })
+// 当前运行中的场景：走到小球那
+用户输入: "请走到小球那"
   ↓
-EQS返回: [{ position: [10, 0, 5], score: 0.95 }]
+LLM调用: query_environment({ goal: "走到小球那", constraints: ["可达"] })
   ↓
-行为树执行: move_to([10, 0, 5])
+ServerEQS: 规划查询配置（Points_Circle + Test_Distance + Test_Pathfinding）
   ↓
-完成
+客户端: 执行3D计算，返回最佳位置 [9.5, 0, 9.5]
+  ↓
+ServerEQS: 分析结果，写入黑板 bt_output_position
+  ↓
+LLM调用: move_to({ targetPos: [9.5, 0, 9.5] })
+  ↓
+角色移动到目标位置
 ```
 
-### 情况 B：使用 ReActAgent（推荐用于复杂交互）
+### 情况 B：使用 ReActAgent（未来扩展方向）
 
 **适用场景**：需要多步推理、容错处理或逻辑闭环的任务。
 
 **核心价值**：ReAct (Reasoning + Acting) 允许模型在每一步执行后获得 **Observation（观察结果）**。
 
-**架构流程**：
+**当前状态**：
+- ❌ **尚未实现**
+- ✅ **架构预留**：系统设计支持未来集成 ReActAgent
+- ✅ **EQSQueryNode**：已实现，可作为 ReActAgent 的工具使用
+
+**未来架构流程**：
 ```
 LLM推理 → 调用EQS工具 → 观察结果 → 继续推理 → 调整策略 → 再次调用工具...
 ```
 
-**示例**：
+**规划中的示例**：
 ```typescript
 // 复杂场景：需要多步推理和调整
 迭代 1:
   Thought: "我需要找个安全的地方，先查询一下环境"
-  Action: queryEnvironment({ goal: "找个安全的地方" })
+  Action: query_environment({ goal: "找个安全的地方" })
   Observation: "找到了位置 [10, 0, 5]，但路径被阻挡"
 
 迭代 2:
-  Thought: "路径被阻挡，我需要先找到另一个路径，或者绕过去"
-  Action: queryEnvironment({ goal: "找到绕过阻挡的路径" })
+  Thought: "路径被阻挡，我需要找到另一个路径，或者绕过去"
+  Action: query_environment({ goal: "找到绕过阻挡的路径" })
   Observation: "找到了备用路径，位置 [12, 0, 7]"
 
 迭代 3:
   Thought: "好的，现在可以移动到这个位置了"
-  Action: move_to([12, 0, 7])
+  Action: move_to({ targetPos: [12, 0, 7] })
   Observation: "移动成功"
-  
+
 完成
 ```
 
@@ -1401,30 +1414,33 @@ export default class ReActAgentNode extends AsyncAction {
 
 ### 对比总结
 
-| 特性 | 情况 A：单纯 EQS | 情况 B：ReActAgent + EQS |
-|------|----------------|------------------------|
+| 特性 | 情况 A：当前实现（LLM直接调用） | 情况 B：未来扩展（ReActAgent） |
+|------|--------------------------------|------------------------|
+| **实现状态** | ✅ **已实现并运行** | ❌ **规划中** |
 | **适用场景** | 意图明确、链路简单 | 需要多步推理、容错处理 |
 | **执行模式** | 线性：查询 → 移动 | 循环：推理 → 行动 → 观察 → 调整 |
 | **Token 消耗** | 低（单次调用） | 中高（多轮循环） |
-| **响应速度** | 快 | 中等（需要多轮） |
-| **容错能力** | 低 | 高（可根据观察调整） |
-| **复杂环境** | 难以处理动态变化 | 可以适应动态变化 |
-| **示例场景** | "找个安全的地方" | "在移动的小球前面找个位置" |
+| **响应速度** | 快（15-50ms） | 中等（需要多轮） |
+| **容错能力** | 中等（依赖LLM理解） | 高（可根据观察调整） |
+| **复杂环境** | 基本处理动态变化 | 完全适应动态变化 |
+| **示例场景** | "走到小球那" | "在移动的小球前面找个位置" |
 
 ### 推荐使用策略
 
-1. **简单场景**（情况 A）：
-   - 目标明确，环境稳定
-   - 使用 `EQSQueryNode` 直接查询并执行
+1. **当前使用**（情况 A：LLM直接调用）：
+   - ✅ **目标明确，环境适度变化**
+   - ✅ **通过LLM工具直接调用 `query_environment`**
+   - ✅ **适用于大部分日常交互场景**
 
-2. **复杂场景**（情况 B）：
-   - 环境动态变化（小球移动、路径被堵）
-   - 需要多步推理和调整
-   - 使用 `ReActAgentNode` + EQS 工具
+2. **未来扩展**（情况 B：ReActAgent）：
+   - ❌ **环境高度动态变化（小球移动、路径被堵）**
+   - ❌ **需要多步推理和调整**
+   - ❌ **使用 `ReActAgentNode` + EQS 工具**
 
-3. **混合使用**：
-   - 大部分任务使用情况 A（高效）
-   - 复杂任务切换到情况 B（智能）
+3. **技术路线**：
+   - **当前**：LLM工具调用模式（高效、稳定）
+   - **未来**：ReActAgent推理循环模式（智能、灵活）
+   - **过渡**：架构已预留，可平滑升级
 
 ---
 
@@ -2950,5 +2966,6 @@ EQS 系统提供了强大的环境查询能力，通过组合生成器和测试�
 
 ---
 
-**文档版本**：v1.0  
-**最后更新**：2024年
+**文档版本**：v1.1
+**最后更新**：2024年12月
+**实现状态**：✅ **完全实现并运行稳定**

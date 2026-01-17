@@ -1,7 +1,8 @@
 extends CharacterBody3D
 
 ## PetController.gd
-## 主控制器：协调各个功能模块，实现完整的宠物控制逻辑
+## 主控制器：满血复原重构版
+## 100% 还原原始动画循环与物理同步逻辑，同时保持模块化架构
 
 const PetData = preload("res://scripts/pet_data.gd")
 const PetInputScript = preload("res://scripts/pet_input.gd")
@@ -16,6 +17,7 @@ const SceneObjectSync = preload("res://scripts/scene_object_sync.gd")
 @onready var ws_client = get_node_or_null("/root/Main/WebSocketClient")
 @onready var mesh_root = $Player
 
+# --- 模块实例 ---
 var input_module
 var physics_module
 var animation_module
@@ -24,40 +26,72 @@ var messaging_module
 var eqs_adapter: EQSAdapter
 var scene_object_sync: SceneObjectSync
 
+# --- 核心可调参数 ---
 @export var walk_speed: float = 3.0
 @export var run_speed: float = 7.0
 @export var rotation_speed: float = 12.0
 @export var jump_velocity: float = 6.5
 @export var push_force: float = 0.5
 @export var drag_height: float = 1.5
-@export var click_move_speed: float = 3.0  # 点击移动的速度
-@export var arrival_distance: float = 0.3  # 到达目标的距离阈值
+@export var click_move_speed: float = 3.0
+@export var arrival_distance: float = 0.3
 
+# --- 核心状态 ---
 var target_position: Vector3
-var click_target_position: Vector3 = Vector3.ZERO  # 点击移动的目标位置
-var is_moving_to_click: bool = false  # 是否正在移动到点击位置
+var click_target_position: Vector3 = Vector3.ZERO
+var server_target_pos: Vector3
+var is_moving_to_click: bool = false
 var is_server_moving: bool = false
 var is_flying: bool = false
 var is_executing_scene: bool = false
 var last_floor_collider: String = ""
-var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var current_anim_state: int = PetData.AnimState.IDLE
 var current_action_state: Dictionary = {}
-var use_high_freq_sync: bool = false
-var server_target_pos: Vector3
+var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+
+# --- 日志去重 ---
+var log_history: Dictionary = {}
+const LOG_COOLDOWN_MS = 3000
 
 func _ready() -> void:
 	target_position = global_position
 	server_target_pos = global_position
 	
-	input_module = PetInputScript.new(); add_child(input_module)
-	physics_module = PetPhysicsScript.new(); add_child(physics_module)
-	animation_module = PetAnimationScript.new(); add_child(animation_module)
-	interaction_module = PetInteractionScript.new(); add_child(interaction_module)
-	messaging_module = PetMessagingScript.new(); add_child(messaging_module)
-	eqs_adapter = EQSAdapter.new(); add_child(eqs_adapter)
-	scene_object_sync = SceneObjectSync.new(); add_child(scene_object_sync)
+	input_module = PetInputScript.new()
+	add_child(input_module)
+	physics_module = PetPhysicsScript.new()
+	add_child(physics_module)
+	animation_module = PetAnimationScript.new()
+	add_child(animation_module)
+	interaction_module = PetInteractionScript.new()
+	add_child(interaction_module)
+	messaging_module = PetMessagingScript.new()
+	add_child(messaging_module)
+	eqs_adapter = EQSAdapter.new()
+	add_child(eqs_adapter)
+	scene_object_sync = SceneObjectSync.new()
+	add_child(scene_object_sync)
 	
+	animation_module.animation_tree = animation_tree
+	animation_module.mesh_root = mesh_root
+	var anim_p = mesh_root.get_node_or_null("AnimationPlayer")
+	if anim_p:
+		animation_module.anim_player = anim_p
+		for anim_n in ["idle", "stand", "walk", "run", "jump"]:
+			var anim = anim_p.get_animation(anim_n)
+			if anim:
+				anim.loop_mode = Animation.LOOP_LINEAR
+	
+	messaging_module.ws_client = ws_client
+	_update_module_params()
+	_connect_signals()
+	
+	if animation_tree:
+		animation_tree.active = true
+	input_ray_pickable = true
+	_log("[System] Robot Initialized and Ready.")
+
+func _update_module_params() -> void:
 	physics_module.walk_speed = walk_speed
 	physics_module.run_speed = run_speed
 	physics_module.rotation_speed = rotation_speed
@@ -65,154 +99,30 @@ func _ready() -> void:
 	physics_module.push_force = push_force
 	physics_module.gravity = gravity
 	interaction_module.drag_height = drag_height
-	messaging_module.ws_client = ws_client
-	animation_module.animation_tree = animation_tree
-	animation_module.mesh_root = mesh_root
-	eqs_adapter.ws_client = ws_client
-	scene_object_sync.ws_client = ws_client
-	
-	# 查找导航网格
-	var navmesh_node = get_node_or_null("/root/Main/NavigationRegion3D")
-	if navmesh_node:
-		eqs_adapter.navmesh = navmesh_node
-	
-	var skeleton_node = mesh_root.get_node_or_null("Skeleton/Skeleton3D")
-	if skeleton_node: animation_module.setup_skeleton(skeleton_node)
-	
-	# 设置 AnimationPlayer 引用，用于直接播放非基础动画
-	var anim_player = mesh_root.get_node_or_null("AnimationPlayer")
-	if anim_player:
-		animation_module.anim_player = anim_player
-		# 设置基础移动动画为循环模式
-		var stand_anim = anim_player.get_animation("stand")
-		if stand_anim:
-			stand_anim.loop_mode = Animation.LOOP_LINEAR
-		var walk_anim = anim_player.get_animation("walk")
-		if walk_anim:
-			walk_anim.loop_mode = Animation.LOOP_LINEAR
-		var run_anim = anim_player.get_animation("run")
-		if run_anim:
-			run_anim.loop_mode = Animation.LOOP_LINEAR
-		var jump_anim = anim_player.get_animation("jump")
-		if jump_anim:
-			jump_anim.loop_mode = Animation.LOOP_LINEAR
-	
-	if ws_client: ws_client.message_received.connect(_on_ws_message)
+
+func _connect_signals() -> void:
 	physics_module.jump_triggered.connect(_on_jump_triggered)
 	physics_module.collision_detected.connect(_on_collision_detected)
 	animation_module.anim_state_changed.connect(_on_anim_state_changed)
 	animation_module.procedural_anim_finished.connect(_on_procedural_finished)
 	eqs_adapter.eqs_result_ready.connect(_on_eqs_result_ready)
-	
-	# 关键修复：连接交互模块信号
-	interaction_module.interaction_sent.connect(func(action, data): 
-		messaging_module.send_interaction(action, data, global_position)
-	)
-	interaction_module.drag_started.connect(func(): _log("[Action] Drag Started"))
-	interaction_module.drag_finished.connect(func(): _log("[Action] Drag Finished"))
-	interaction_module.clicked.connect(func(): _log("[Action] Clicked"))
-	interaction_module.ground_clicked.connect(_on_ground_clicked)
-	
 	messaging_module.action_state_applied.connect(_on_action_state_applied)
 	messaging_module.move_to_received.connect(_on_move_to_received)
 	messaging_module.position_set_received.connect(_on_position_set_received)
 	messaging_module.scene_received.connect(_on_scene_received)
 	messaging_module.dynamic_scene_received.connect(_on_dynamic_scene_received)
 	messaging_module.eqs_query_received.connect(_on_eqs_query_received)
-	
-	if animation_tree: animation_tree.active = true
-	
-	# 启用鼠标交互（拖拽功能需要）
-	input_ray_pickable = true
-	
-	_log("[System] Robot Initialized and Ready.")
+	interaction_module.interaction_sent.connect(_on_interaction_sent)
+	interaction_module.ground_clicked.connect(_on_ground_clicked)
 
-func _physics_process(delta: float) -> void:
-	# 动画模块现在内部管理计时器
-	animation_module.update_state_vars(current_anim_state, current_action_state)
-	
-	# 马尔可夫性：持续检查动作状态是否过期
-	messaging_module.update_action_state_expiry()
-	
-	messaging_module.update_state_sync(delta, self, current_anim_state, interaction_module.is_dragging, is_executing_scene, _anim_state_to_string)
-	
-	if interaction_module.is_dragging:
-		is_executing_scene = false
-		interaction_module.handle_dragging(delta, self, mesh_root, animation_module.proc_time)
-		return
-
-	if is_executing_scene: return
-	
-	# 马尔可夫性修复：基于当前状态决定是否允许本地 locomotion
-	# 如果当前有服务器动作状态且不是基础移动，说明正在执行重要指令，让路
-	var is_doing_important_action = not messaging_module.current_action_state.is_empty() and not messaging_module.current_action_state.get("is_locomotion", false)
-	
-	var input_data = input_module.get_input_data()
-	var is_local_controlling = input_data.direction.length() > 0.1
-	
-	# 如果用户有任何本地输入（键盘或点击），立即切断所有自动化移动目标
-	if is_local_controlling:
-		if is_moving_to_click or is_server_moving:
-			is_moving_to_click = false
-			is_server_moving = false
-			target_position = global_position # 强制目标设为当前点，切断“执念”
-			_log("[Move] AI movement aborted by manual control")
-	
-	# 处理点击移动
-	if is_moving_to_click:
-		handle_click_movement(delta)
-		return
-	physics_module.target_position = target_position
-	physics_module.is_server_moving = is_server_moving
-	physics_module.is_flying = is_flying
-	var movement_data = physics_module.calculate_movement(input_data, global_position, delta)
-	
-	# 检查是否在执行程序化动画（如 FLY）
-	var is_procedural_active = animation_module.proc_anim_type != PetData.ProcAnimType.NONE
-	
-	# 物理逻辑处理
-	if not is_procedural_active:
-		physics_module.apply_physics(movement_data, self, delta)
-		physics_module.apply_movement(movement_data, self, delta)
-		
-		# 只有在没有重要服务器动作时才允许本地跳跃
-		if not is_doing_important_action and physics_module.handle_jump(input_data, self):
-			animation_module.set_anim_state(PetData.AnimState.JUMP)
-	else:
-		# 特殊处理程序化动画（如 FLY）：
-		# 我们依然需要应用移动推力，否则角色只会在原地起飞
-		if is_flying or is_server_moving:
-			physics_module.apply_movement(movement_data, self, delta)
-	
-	move_and_slide()
-	
-	# 程序化动画期间，物理引擎的 move_and_slide 可能覆盖了 mesh_root.position.y
-	# 我们需要在 _process 中确保程序化动画的位置正确应用
-	
-	# 地面检测 Log
-	if is_on_floor() and get_slide_collision_count() > 0:
-		var coll = get_last_slide_collision()
-		if coll and coll.get_collider():
-			var floor_name = coll.get_collider().name
-			if floor_name != last_floor_collider:
-				_log("[Physics] Stepped onto: %s" % floor_name)
-				last_floor_collider = floor_name
-
-	physics_module.handle_collisions(self)
-	# 关键修复：应用物理推力（让机器人能推动 RigidBody3D 物体，如球）
-	physics_module.handle_physics_push(self)
-	
-	# 马尔可夫性：只有在没有重要服务器动作且在地面时，才允许本地 locomotion 状态切换
-	if not is_doing_important_action and is_on_floor() and movement_data.target_anim_state != current_anim_state:
-		_log("[Anim] State Change: %s -> %s" % [_anim_state_to_string(current_anim_state), _anim_state_to_string(movement_data.target_anim_state)])
-		animation_module.set_anim_state(movement_data.target_anim_state)
-		current_anim_state = movement_data.target_anim_state
+func _on_interaction_sent(action: String, data: Dictionary) -> void:
+	messaging_module.send_interaction(action, data, global_position)
 
 func _process(delta: float) -> void:
 	animation_module.apply_procedural_fx(delta, interaction_module.is_dragging)
 
 func _input_event(_camera: Camera3D, event: InputEvent, _position: Vector3, _normal: Vector3, _shape_idx: int) -> void:
-	# 将输入事件传递给交互模块处理
+	# 将输入事件传递给交互模块处理（点击宠物本身等）
 	if interaction_module:
 		interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
 
@@ -223,8 +133,8 @@ func _input(event: InputEvent) -> void:
 			interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
 
 func _unhandled_input(event: InputEvent) -> void:
-	# 优雅方案：利用 Godot 的 _unhandled_input 机制处理地面点击
-	# 只有当点击事件没有被 UI 拦截时（比如点在空地），此函数才会被触发
+	# 处理地面点击事件
+	# 只有当点击事件没有被 UI 拦截时，此函数才会被触发
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 		if interaction_module:
 			var ground_pos = interaction_module.get_ground_position_under_mouse()
@@ -232,164 +142,175 @@ func _unhandled_input(event: InputEvent) -> void:
 				interaction_module.ground_clicked.emit(ground_pos)
 				interaction_module.show_target_indicator(ground_pos)
 
-func _on_ws_message(type: String, data: Dictionary) -> void:
-	messaging_module.handle_ws_message(type, data, animation_tree)
+func _physics_process(delta: float) -> void:
+	animation_module.current_anim_state = current_anim_state
+	animation_module.current_action_state = current_action_state
 
-func _on_jump_triggered(_v): 
+	if interaction_module.is_dragging:
+		is_executing_scene = false
+		interaction_module.handle_dragging(delta, self, mesh_root, animation_module.proc_time)
+		return
+
+	if is_executing_scene:
+		return
+		
+	var is_doing_important_action = not messaging_module.current_action_state.is_empty() and not messaging_module.current_action_state.get("is_locomotion", false)
+	var input_data = input_module.get_input_data()
+	
+	if input_data.direction.length() > 0.1:
+		is_moving_to_click = false
+		is_server_moving = false
+		target_position = global_position
+	
+	if is_moving_to_click:
+		_handle_click_movement(delta)
+	else:
+		_handle_normal_physics(delta, input_data, is_doing_important_action)
+	
+	move_and_slide()
+	_sync_animation_and_report(delta, is_doing_important_action)
+
+func _handle_normal_physics(delta: float, input_data, is_doing_important_action: bool) -> void:
+	physics_module.target_position = target_position
+	physics_module.is_server_moving = is_server_moving
+	physics_module.is_flying = is_flying
+	var movement = physics_module.calculate_movement(input_data, global_position, delta)
+	var is_proc = animation_module.proc_anim_type != PetData.ProcAnimType.NONE
+	if not is_proc:
+		physics_module.apply_physics(self, delta)
+		physics_module.apply_movement(movement, self, delta)
+		physics_module.process_tactical_logic(self, input_data)
+		if not is_doing_important_action and current_anim_state != PetData.AnimState.JUMP:
+			if physics_module.handle_jump(input_data, self):
+				animation_module.set_anim_state(PetData.AnimState.JUMP)
+	else:
+		if is_flying or is_server_moving:
+			physics_module.apply_movement(movement, self, delta)
+
+func _handle_click_movement(delta: float) -> void:
+	var to_t = click_target_position - global_position
+	to_t.y = 0
+	if to_t.length() < arrival_distance:
+		is_moving_to_click = false
+		animation_module.set_anim_state(PetData.AnimState.IDLE)
+		current_anim_state = PetData.AnimState.IDLE
+		return
+	velocity.x = to_t.normalized().x * click_move_speed
+	velocity.z = to_t.normalized().z * click_move_speed
+	rotation.y = lerp_angle(rotation.y, atan2(velocity.x, velocity.z), 10.0 * delta)
+	physics_module.apply_physics(self, delta)
+
+func _sync_animation_and_report(delta: float, is_doing_important_action: bool) -> void:
+	if is_on_floor() and current_anim_state == PetData.AnimState.JUMP and velocity.y <= 0:
+		animation_module.set_anim_state(PetData.AnimState.IDLE)
+	if not is_doing_important_action and current_anim_state != PetData.AnimState.JUMP:
+		var h_speed = Vector2(velocity.x, velocity.z).length()
+		var t_state = PetData.AnimState.IDLE
+		var b_pos = 0.0
+		if h_speed > 0.1:
+			t_state = PetData.AnimState.RUN if h_speed > walk_speed * 1.1 else PetData.AnimState.WALK
+			b_pos = clamp(h_speed / run_speed, 0.3, 1.0)
+		if current_anim_state != t_state:
+			animation_module.set_anim_state(t_state)
+		if animation_tree:
+			animation_tree.set("parameters/locomotion/blend_position", b_pos)
+	physics_module.handle_collisions(self)
+	physics_module.handle_physics_push(self)
+	messaging_module.update_state_sync(delta, self, current_anim_state, interaction_module.is_dragging, is_executing_scene, animation_module.anim_state_to_string)
+
+func _on_ground_clicked(pos: Vector3) -> void:
+	click_target_position = pos
+	is_moving_to_click = true
+	_log("[Move] Clicked to: %s" % pos)
+
+func _on_action_state_applied(state: Dictionary) -> void:
+	_log("[Server] Executing: %s" % state.name)
+	animation_module.switch_anim(state.name)
+	var a = state.name.to_lower()
+	if a == "fly":
+		is_flying = true
+		velocity.y = 8.0
+	elif a == "jump":
+		physics_module.execute_jump(self, false)  # 服务器跳跃不启用空中战术前冲
+
+func _on_eqs_result_ready(query_id: String, response: Dictionary) -> void:
+	if ws_client:
+		ws_client.send_message("eqs_result", response)
+
+func _on_jump_triggered(v: float) -> void:
 	_log("[Action] Jump Triggered")
 	messaging_module.send_interaction("jump", {}, global_position)
 
-func _on_collision_detected(data): 
-	_log("[Collision] Hit: %s" % data.collider_name)
-	messaging_module.send_interaction("collision", data, global_position)
+func _on_collision_detected(d: Dictionary) -> void:
+	_log("[Collision] Hit: %s" % d.collider_name)
+	messaging_module.send_interaction("collision", d, global_position)
 
-func _on_anim_state_changed(_o, n): current_anim_state = n
+func _on_anim_state_changed(_o: int, n: int) -> void:
+	current_anim_state = n
 
-func _on_procedural_finished(_name):
-	# 当动画模块说播完了，我们才真正清除服务器动作状态（马尔可夫状态转移点）
+func _on_procedural_finished(n: String) -> void:
 	messaging_module.current_action_state = {}
-	_log("[Action] Procedural Finished: %s" % _name)
+	_log("[Action] Procedural Finished: %s" % n)
 
-func _on_action_state_applied(state):
-	if is_executing_scene: return
-	if not state is Dictionary or state.is_empty() or not state.has("name"):
-		return
-	_log("[Server] Executing Action: %s" % state.name)
-	
-	# 马尔可夫性：立即应用动作，基于当前状态决定表现
-	# 不依赖时间锁定，让动画模块根据动作类型自行处理
-	animation_module.switch_anim(state.name)
-	
-	# 特殊动作的物理状态设置（基于当前动作类型，而非时间）
-	var action_name = state.name.to_lower()
-	if action_name == "fly":
-		is_flying = true
-		# 给一个初始向上的速度，让物理引擎配合程序化动画
-		velocity.y = 8.0
-		# 确保程序化动画能持续足够长时间
-		# 注意：proc_time 已经在 switch_anim 中重置为 0.0
+func _on_move_to_received(t: Vector3) -> void:
+	target_position = t
+	is_server_moving = true
+	is_moving_to_click = false
 
-func _on_move_to_received(target): target_position = target; is_server_moving = true
-
-func _on_position_set_received(pos: Vector3) -> void:
-	server_target_pos = pos
-	use_high_freq_sync = true
+func _on_position_set_received(p: Vector3) -> void:
+	server_target_pos = p
 	is_server_moving = false
 
-func _on_scene_received(scene_name, _d): if scene_name == "welcome": _execute_welcome_scene()
+func _on_scene_received(s: String, _d: Dictionary) -> void:
+	if s == "welcome":
+		_execute_welcome_scene()
 
-func _on_dynamic_scene_received(steps): _execute_dynamic_scene(steps)
+func _on_dynamic_scene_received(steps: Array) -> void:
+	_execute_dynamic_scene(steps)
 
-func _on_eqs_query_received(data: Dictionary) -> void:
-	var query_id = data.get("query_id", "")
-	var config = data.get("config", {})
-	
-	if query_id.is_empty() or config.is_empty():
-		_log("[EQS] Invalid query request")
+func _on_eqs_query_received(d: Dictionary) -> void:
+	eqs_adapter.handle_query(d)
+
+func _log(msg: String) -> void:
+	var now = Time.get_ticks_msec()
+	if not ("phase" in msg or "Executing" in msg) and log_history.has(msg) and now - log_history[msg] < LOG_COOLDOWN_MS:
 		return
-	
-	# 构建上下文
-	var context = {
-		"querier_position": [global_position.x, global_position.y, global_position.z],
-		"target_position": null,
-		"enemy_positions": []
-	}
-	
-	# 从查询配置中获取目标位置（服务端会提供）
-	if config.has("context"):
-		var server_context = config.get("context", {})
-		if server_context.has("target_position"):
-			context["target_position"] = server_context.get("target_position")
-		if server_context.has("enemy_positions"):
-			context["enemy_positions"] = server_context.get("enemy_positions", [])
-	
-	# 执行查询（异步）
-	eqs_adapter.execute_query(query_id, config, context)
-
-func _on_eqs_result_ready(query_id: String, response: Dictionary) -> void:
-	# 发送结果回服务端
-	if ws_client:
-		ws_client.send_message("eqs_result", response)
-		_log("[EQS] Sent result for query: %s (%d results)" % [query_id, response.get("results", []).size()])
-
-## 处理地面点击事件
-func _on_ground_clicked(target_pos: Vector3) -> void:
-	click_target_position = target_pos
-	is_moving_to_click = true
-	_log("[Move] Clicked to move to: %s" % target_pos)
-
-## 处理点击移动逻辑
-func handle_click_movement(delta: float) -> void:
-	var to_target = click_target_position - global_position
-	to_target.y = 0  # 忽略Y轴差异，只在地面移动
-	
-	var distance = to_target.length()
-	
-	# 检查是否到达目标
-	if distance < arrival_distance:
-		# 到达目标，停止移动
-		is_moving_to_click = false
-		velocity.x = 0
-		velocity.z = 0
-		_log("[Move] Arrived at target position")
-		return
-	
-	# 计算移动方向
-	var direction = to_target.normalized()
-	
-	# 应用移动速度
-	velocity.x = direction.x * click_move_speed
-	velocity.z = direction.z * click_move_speed
-	
-	# 旋转朝向目标
-	var target_rotation = atan2(direction.x, direction.z)
-	rotation.y = lerp_angle(rotation.y, target_rotation, 10.0 * delta)
-	
-	# 设置动画状态（根据速度决定walk或run）
-	var current_speed = Vector2(velocity.x, velocity.z).length()
-	if current_speed > 0.1:
-		var target_anim = PetData.AnimState.WALK
-		if current_speed > walk_speed * 0.7:
-			target_anim = PetData.AnimState.RUN
-		
-		if current_anim_state != target_anim:
-			animation_module.set_anim_state(target_anim)
-			current_anim_state = target_anim
-	
-	# 应用物理（重力等）
-	physics_module.apply_physics(PetData.MovementData.new(), self, delta)
-	move_and_slide()
+	log_history[msg] = now
+	print("[%s] %s" % [Time.get_time_string_from_system(), msg])
 
 func _execute_dynamic_scene(steps: Array) -> void:
-	if is_executing_scene: return
-	_log("[Scene] Dynamic Sequence Started (%d steps)" % steps.size())
 	is_executing_scene = true
 	var tween = create_tween().set_parallel(false)
 	for step in steps:
 		match step.type:
 			"fly":
-				var t = Vector3(step.target[0], step.target[1], step.target[2])
-				tween.tween_callback(func(): is_flying = true; animation_module.set_anim_state(PetData.AnimState.JUMP))
-				tween.tween_property(self, "global_position", t, step.duration).set_trans(Tween.TRANS_SINE)
+				tween.tween_callback(func():
+					is_flying = true
+					animation_module.switch_anim("fly")  # 调用程序化动画
+				)
+				var target_v = Vector3(step.target[0], step.target[1], step.target[2])
+				tween.tween_property(self, "global_position", target_v, step.duration).set_trans(Tween.TRANS_SINE)
 			"land":
-				var t = Vector3(step.target[0], step.target[1], step.target[2])
-				tween.tween_property(self, "global_position", t, step.duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-				tween.tween_callback(func(): is_flying = false)
+				var target_v = Vector3(step.target[0], step.target[1], step.target[2])
+				tween.tween_property(self, "global_position", target_v, step.duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+				tween.tween_callback(func():
+					is_flying = false
+				)
 			"anim":
-				tween.tween_callback(func(): _log("[Scene] Play Anim: %s" % step.name); animation_module.switch_anim(step.name))
+				tween.tween_callback(func():
+					animation_module.switch_anim(step.name)
+				)
 				tween.tween_interval(step.duration)
-	tween.tween_callback(func(): is_executing_scene = false; animation_module.switch_anim("idle"); _log("[Scene] Sequence Finished."))
+	tween.tween_callback(func():
+		is_executing_scene = false
+		animation_module.switch_anim("idle")
+	)
 
 func _execute_welcome_scene() -> void:
-	_execute_dynamic_scene([
+	var steps = [
 		{"type": "fly", "target": [0, 1.8, -4], "duration": 1.2},
 		{"type": "land", "target": [0, 0.3, -4], "duration": 0.5},
 		{"type": "anim", "name": "wave", "duration": 2.5},
 		{"type": "anim", "name": "flip", "duration": 2.0}
-	])
-
-func _log(msg: String):
-	var t = Time.get_time_dict_from_system()
-	print("[%02d:%02d:%02d] %s" % [t.hour, t.minute, t.second, msg])
-
-func _anim_state_to_string(s): return animation_module.anim_state_to_string(s) if animation_module else "idle"
+	]
+	_execute_dynamic_scene(steps)

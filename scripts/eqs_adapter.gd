@@ -6,7 +6,7 @@ extends Node
 class_name EQSAdapter
 
 ## 信号
-signal eqs_result_ready(query_id: String, results: Array)
+signal eqs_result_ready(query_id: String, response: Dictionary)
 
 ## 节点引用
 var ws_client: Node
@@ -25,6 +25,39 @@ func _get_world_3d() -> World3D:
 		if main_scene:
 			return main_scene.get_world_3d()
 	return null
+
+## 从上下文中安全获取位置向量
+func _get_pos_from_context(context: Dictionary, key: String, default: Vector3 = Vector3.ZERO) -> Vector3:
+	var pos = context.get(key)
+	if pos == null:
+		return default
+	
+	if pos is Vector3:
+		return pos
+	
+	if pos is Array and pos.size() >= 3:
+		return Vector3(pos[0], pos[1], pos[2])
+	
+	return default
+
+## 处理来自服务端的查询
+## @param query_data: 从WebSocket消息的data字段提取的字典
+func handle_query(query_data: Dictionary) -> void:
+	var query_id = query_data.get("query_id", "")
+	var data = query_data.get("data", {})
+
+	if query_id.is_empty():
+		push_warning("[EQSAdapter] Query ID is empty")
+		return
+
+	var config = data.get("config", {})
+	var context = data.get("context", {})
+
+	if config.is_empty():
+		push_warning("[EQSAdapter] Query config is empty")
+		return
+
+	execute_query(query_id, config, context)
 
 ## 执行查询
 ## @param query_id: 查询ID
@@ -91,30 +124,32 @@ func _generate_circle(params: Dictionary, context: Dictionary) -> Array[Vector3]
 	var radius = params.get("radius", 10.0)
 	var points_count = params.get("points_count", 16)
 	var generate_around = params.get("generate_around", "Querier")
-	
+	var target_height = params.get("target_height", null)  # 新增：目标高度（用于舞台等）
+
 	var center: Vector3
 	match generate_around:
 		"Querier":
-			var qpos = context.get("querier_position", [0, 0, 0])
-			center = Vector3(qpos[0], qpos[1], qpos[2])
+			center = _get_pos_from_context(context, "querier_position")
 		"Target":
-			var tpos = context.get("target_position", [0, 0, 0])
-			center = Vector3(tpos[0], tpos[1], tpos[2])
+			center = _get_pos_from_context(context, "target_position")
 		_:
 			center = Vector3.ZERO
-	
+
+	# 如果指定了目标高度，使用目标高度；否则使用center的Y坐标
+	var y_level = target_height if target_height != null else center.y
+
 	var points: Array[Vector3] = []
 	var angle_step = TAU / points_count
-	
+
 	for i in range(points_count):
 		var angle = i * angle_step
-		var pos = center + Vector3(
-			cos(angle) * radius,
-			0,
-			sin(angle) * radius
+		var pos = Vector3(
+			center.x + cos(angle) * radius,
+			y_level,  # 使用计算出的Y坐标
+			center.z + sin(angle) * radius
 		)
 		points.append(pos)
-	
+
 	return points
 
 ## 网格生成器
@@ -126,11 +161,9 @@ func _generate_grid(params: Dictionary, context: Dictionary) -> Array[Vector3]:
 	var center: Vector3
 	match generate_around:
 		"Querier":
-			var qpos = context.get("querier_position", [0, 0, 0])
-			center = Vector3(qpos[0], qpos[1], qpos[2])
+			center = _get_pos_from_context(context, "querier_position")
 		"Target":
-			var tpos = context.get("target_position", [0, 0, 0])
-			center = Vector3(tpos[0], tpos[1], tpos[2])
+			center = _get_pos_from_context(context, "target_position")
 		_:
 			center = Vector3.ZERO
 	
@@ -165,6 +198,7 @@ func _generate_on_path(params: Dictionary, context: Dictionary) -> Array[Vector3
 	for i in range(path_points.size() - 1):
 		var start_arr = path_points[i]
 		var end_arr = path_points[i + 1]
+		if start_arr == null or end_arr == null: continue
 		var start = Vector3(start_arr[0], start_arr[1], start_arr[2])
 		var end = Vector3(end_arr[0], end_arr[1], end_arr[2])
 		
@@ -193,6 +227,7 @@ func _generate_from_actors(params: Dictionary, context: Dictionary) -> Array[Vec
 	var points: Array[Vector3] = []
 	
 	for actor_pos in actor_positions:
+		if actor_pos == null: continue
 		var center = Vector3(actor_pos[0], actor_pos[1], actor_pos[2])
 		var angle_step = TAU / points_per_actor
 		
@@ -253,19 +288,17 @@ func _test_distance(point: Vector3, params: Dictionary, context: Dictionary) -> 
 	
 	match mode:
 		"DISTANCE_TO_QUERIER":
-			var qpos = context.get("querier_position", [0, 0, 0])
-			target_pos = Vector3(qpos[0], qpos[1], qpos[2])
+			target_pos = _get_pos_from_context(context, "querier_position")
 		"DISTANCE_TO_TARGET":
-			var tpos = context.get("target_position", [0, 0, 0])
-			target_pos = Vector3(tpos[0], tpos[1], tpos[2])
+			target_pos = _get_pos_from_context(context, "target_position")
 		"DISTANCE_TO_ENEMIES":
 			var enemies = context.get("enemy_positions", [])
-			if enemies.is_empty():
+			if enemies.is_empty() or enemies[0] == null:
 				return 1.0
 			var enemy = enemies[0]
 			target_pos = Vector3(enemy[0], enemy[1], enemy[2])
 		_:
-			return 1.0
+			target_pos = point # 默认指向自己或当前点
 	
 	var distance = point.distance_to(target_pos)
 	
@@ -305,11 +338,9 @@ func _test_trace(point: Vector3, params: Dictionary, context: Dictionary) -> flo
 	# 确定起点
 	match trace_from:
 		"Querier":
-			var qpos = context.get("querier_position", [0, 0, 0])
-			from_pos = Vector3(qpos[0], qpos[1], qpos[2])
+			from_pos = _get_pos_from_context(context, "querier_position")
 		"Target":
-			var tpos = context.get("target_position", [0, 0, 0])
-			from_pos = Vector3(tpos[0], tpos[1], tpos[2])
+			from_pos = _get_pos_from_context(context, "target_position")
 		"Item":
 			from_pos = point
 		_:
@@ -318,11 +349,9 @@ func _test_trace(point: Vector3, params: Dictionary, context: Dictionary) -> flo
 	# 确定终点
 	match trace_to:
 		"Querier":
-			var qpos = context.get("querier_position", [0, 0, 0])
-			to_pos = Vector3(qpos[0], qpos[1], qpos[2])
+			to_pos = _get_pos_from_context(context, "querier_position")
 		"Target":
-			var tpos = context.get("target_position", [0, 0, 0])
-			to_pos = Vector3(tpos[0], tpos[1], tpos[2])
+			to_pos = _get_pos_from_context(context, "target_position")
 		"Item":
 			to_pos = point
 		_:
@@ -374,16 +403,13 @@ func _test_dot(point: Vector3, params: Dictionary, context: Dictionary) -> float
 	match mode:
 		"DOT_TO_TARGET":
 			from_pos = point
-			var tpos = context.get("target_position", [0, 0, 0])
-			to_pos = Vector3(tpos[0], tpos[1], tpos[2])
+			to_pos = _get_pos_from_context(context, "target_position")
 		"DOT_FROM_TARGET":
-			var tpos = context.get("target_position", [0, 0, 0])
-			from_pos = Vector3(tpos[0], tpos[1], tpos[2])
+			from_pos = _get_pos_from_context(context, "target_position")
 			to_pos = point
 		"DOT_TO_QUERIER":
 			from_pos = point
-			var qpos = context.get("querier_position", [0, 0, 0])
-			to_pos = Vector3(qpos[0], qpos[1], qpos[2])
+			to_pos = _get_pos_from_context(context, "querier_position")
 		_:
 			return 1.0
 	
@@ -433,38 +459,48 @@ func _test_overlap(point: Vector3, params: Dictionary, context: Dictionary) -> f
 func _test_pathfinding(point: Vector3, params: Dictionary, context: Dictionary) -> float:
 	var max_path_length = params.get("max_path_length", 100.0)
 	var require_path_exists = params.get("require_path_exists", true)
-	
+
 	if not navmesh:
+		print("[EQS] Pathfinding test skipped: no navigation mesh")
 		return 1.0  # 没有导航网格，跳过测试
-	
-	var qpos = context.get("querier_position", [0, 0, 0])
-	var start_pos = Vector3(qpos[0], qpos[1], qpos[2])
+
+	var start_pos = _get_pos_from_context(context, "querier_position")
 	var end_pos = point
-	
-	# 使用 NavigationServer3D
+
+	# 检查导航网格是否有效
+	if not navmesh.get_navigation_mesh():
+		print("[EQS] Pathfinding test skipped: navigation mesh not baked")
+		return 1.0
+
+	# 获取正确的map RID并使用NavigationServer3D
+	var map_rid = NavigationServer3D.region_get_map(navmesh.get_rid())
 	var path = NavigationServer3D.map_get_path(
-		navmesh.get_rid(),
+		map_rid,
 		start_pos,
 		end_pos,
 		true  # 优化路径
 	)
-	
+
 	if path.is_empty():
 		if require_path_exists:
+			print("[EQS] No path found from %s to %s" % [start_pos, end_pos])
 			return -1.0
 		return 0.0
-	
+
 	# 计算路径长度
 	var path_length = 0.0
 	for i in range(path.size() - 1):
 		path_length += path[i].distance_to(path[i + 1])
-	
+
 	if path_length > max_path_length:
+		print("[EQS] Path too long: %.2f > %.2f" % [path_length, max_path_length])
 		return -1.0
-	
+
 	# 路径越短分数越高
 	var score = 1.0 - (path_length / max_path_length)
-	return clamp(score, 0.0, 1.0)
+	var clamped_score = clamp(score, 0.0, 1.0)
+
+	return clamped_score
 
 ## 发送结果
 func _send_result(query_id: String, results: Array, error: String = "") -> void:
@@ -482,3 +518,95 @@ func _send_result(query_id: String, results: Array, error: String = "") -> void:
 	
 	# 通过信号通知，由pet_controller发送
 	eqs_result_ready.emit(query_id, response)
+
+## 测试查询处理功能
+func test_query_handling() -> void:
+	print("[EQS] Testing query handling...")
+	var test_query_data = {
+		"query_id": "test_query_001",
+		"data": {
+			"config": {
+				"generator": {
+					"type": "Points_Circle",
+					"params": {
+						"radius": 5.0,
+						"points_count": 8,
+						"generate_around": "Querier"
+					}
+				},
+				"tests": [{
+					"type": "Test_Distance",
+					"params": {
+						"mode": "DISTANCE_TO_TARGET",
+						"scoring_equation": "Linear",
+						"min_distance": 1.0,
+						"max_distance": 10.0
+					}
+				}],
+				"options": {
+					"max_results": 3,
+					"min_score": 0.0
+				}
+			},
+			"context": {
+				"querier_position": [0.0, 0.0, 0.0],
+				"target_position": [3.0, 0.0, 3.0]
+			}
+		}
+	}
+
+	handle_query(test_query_data)
+	print("[EQS] Query handling test completed")
+
+## 测试导航网格功能（可在编辑器中调用）
+func test_navigation_mesh() -> void:
+	print("[EQS] Testing navigation mesh...")
+
+	if not navmesh:
+		print("[EQS] ❌ No navigation mesh assigned")
+		return
+
+	# 检查导航网格
+	if not navmesh.get_navigation_mesh():
+		print("[EQS] ❌ No navigation mesh found")
+		return
+	print("[EQS] ✅ Navigation mesh is available")
+
+	print("[EQS] Navigation mesh is ready, testing paths...")
+
+	# 获取导航地图RID
+	var map_rid = NavigationServer3D.region_get_map(navmesh.get_rid())
+	print("[EQS] Map RID: %s" % map_rid)
+
+	# 从稍微高一点的位置开始测试（避免在导航网格表面上）
+	var start_pos = Vector3(0, 0.1, 0)
+
+	# 测试几个路径（在导航网格范围内）
+	var test_points = [
+		Vector3(3, 0.1, 0),   # 前方3米
+		Vector3(0, 0.1, 3),   # 右侧3米
+	]
+
+	for point in test_points:
+		print("[EQS] Testing path from %s to %s" % [start_pos, point])
+
+		# 使用正确的NavigationServer3D API
+		var path = NavigationServer3D.map_get_path(
+			map_rid,
+			start_pos,
+			point,
+			true  # optimize
+		)
+
+		if path.is_empty():
+			print("[EQS] ❌ No path found")
+			# 检查是否可以直接到达（简单距离检查）
+			var direct_distance = start_pos.distance_to(point)
+			print("[EQS]   Direct distance: %.2f" % direct_distance)
+		else:
+			var path_length = 0.0
+			for i in range(path.size() - 1):
+				path_length += path[i].distance_to(path[i + 1])
+			print("[EQS] ✅ Path found, length: %.2f, points: %d" % [path_length, path.size()])
+
+	print("[EQS] Navigation mesh test completed")

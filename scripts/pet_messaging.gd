@@ -63,7 +63,20 @@ func _handle_single_action_data(action_data: Variant, animation_tree: AnimationT
 		action_name = action_data.to_lower()
 	elif action_data is Dictionary:
 		action_name = action_data.get("name", "idle").to_lower()
-	
+
+	# 调试：记录接收到的动作
+	print("[Action] Received action: %s (original: %s)" % [action_name, str(action_data)])
+
+	# 特殊处理：FLY 动作应该触发程序化动画，而不是基础动画
+	if action_name == "fly":
+		action_state_applied.emit({
+			"name": "fly",
+			"priority": 80,  # 更高的优先级
+			"duration": 2000,  # 2秒飞行时间
+			"interruptible": true
+		})
+		return
+
 	apply_action_state({
 		"name": action_name,
 		"priority": 50,
@@ -153,22 +166,40 @@ func send_interaction(action: String, extra_data: Variant, character_position: V
 func send_state_sync(character_body: CharacterBody3D, current_anim_state: int, is_dragging: bool, is_executing_scene: bool, anim_state_to_string_func: Callable) -> void:
 	if not ws_client or not ws_client.is_connected_to_server():
 		return
-	
+
 	var focus_owner = get_viewport().gui_get_focus_owner()
 	var is_typing = focus_owner is LineEdit
 	var input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var is_moving_locally = input_dir.length() > 0.1 and not is_typing
 	var is_jump_pressed = Input.is_action_pressed("jump") and not is_typing
-	
+
+	# 获取舞台位置
+	var stage_position = null
+	var stage_node = character_body.get_node_or_null("/root/Main/StageDecor/Stage")
+	if stage_node:
+		stage_position = [stage_node.global_position.x, stage_node.global_position.y, stage_node.global_position.z]
+
+	# 关键修复：检测真实碰撞（排除地板），防止连环跳
+	var is_in_collision = false
+	if character_body.get_slide_collision_count() > 0:
+		for i in range(character_body.get_slide_collision_count()):
+			var coll = character_body.get_slide_collision(i)
+			# 如果碰撞法线 y 值很低，说明是撞到了墙或者台阶边缘
+			if coll.get_normal().y < 0.5:
+				is_in_collision = true
+				break
+
 	ws_client.send_message("state_sync", {
 		"position": [character_body.global_position.x, character_body.global_position.y, character_body.global_position.z],
 		"current_action": anim_state_to_string_func.call(current_anim_state),
 		"is_dragging": is_dragging,
 		"is_executing_scene": is_executing_scene, # 重要：同步给大脑
 		"is_on_floor": character_body.is_on_floor(),
+		"is_in_collision": is_in_collision, # 新增：准确同步碰撞状态
 		"is_moving_locally": is_moving_locally,
 		"is_jump_pressed": is_jump_pressed,
-		"velocity": [character_body.velocity.x, character_body.velocity.y, character_body.velocity.z]
+		"velocity": [character_body.velocity.x, character_body.velocity.y, character_body.velocity.z],
+		"stage_position": stage_position  # 新增：舞台位置
 	})
 
 ## 更新状态同步定时器
