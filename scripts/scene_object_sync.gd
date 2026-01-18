@@ -1,9 +1,10 @@
 extends Node
 
+const PetLogger = preload("res://scripts/logger.gd")
+
 ## scene_object_sync.gd
 ## 场景对象同步模块：定期上报场景中的对象位置（如小球）
 
-const Logger = preload("res://scripts/logger.gd")
 
 ## 节点引用
 var ws_client: Node
@@ -32,27 +33,27 @@ func _find_scene_objects():
 	if ball:
 		scene_objects.append(ball)
 		tracked_objects[ball.get_path()] = "ball"
-		Logger.log("SceneObjectSync", "Registered ball for sync at path: %s" % ball.get_path())
+		PetLogger.info("SceneObjectSync", "Registered ball for sync at path: %s" % ball.get_path())
 
 	# 2. 查找主摄像机
 	var camera = get_viewport().get_camera_3d()
 	if camera:
 		scene_objects.append(camera)
 		tracked_objects[camera.get_path()] = "camera"
-		Logger.log("SceneObjectSync", "Registered camera for sync")
+		PetLogger.info("SceneObjectSync", "Registered camera for sync")
 	
 	# 3. 查找静态目标点
 	var stage = main.find_child("Stage", true, false)
 	if stage:
 		scene_objects.append(stage)
 		tracked_objects[stage.get_path()] = "stage"
-		Logger.log("SceneObjectSync", "Registered stage for sync")
+		PetLogger.info("SceneObjectSync", "Registered stage for sync")
 	
 	var ramp = main.find_child("Ramp", true, false)
 	if ramp:
 		scene_objects.append(ramp)
 		tracked_objects[ramp.get_path()] = "ramp"
-		Logger.log("SceneObjectSync", "Registered ramp for sync")
+		PetLogger.info("SceneObjectSync", "Registered ramp for sync")
 
 func _process(delta: float):
 	if not ws_client:

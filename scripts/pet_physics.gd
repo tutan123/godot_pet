@@ -5,6 +5,7 @@ extends Node
 ## 采用战术解耦设计，不侵入核心控制器逻辑
 
 const PetData = preload("res://scripts/pet_data.gd")
+const PetLogger = preload("res://scripts/logger.gd")
 
 ## 信号定义
 signal jump_triggered(velocity_y: float)

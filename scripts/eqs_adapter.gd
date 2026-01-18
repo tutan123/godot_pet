@@ -3,9 +3,7 @@ extends Node
 ## eqs_adapter.gd
 ## EQS 客户端适配器：轻量级适配器，将服务端查询配置转换为 Godot API 调用
 
-const Logger = preload("res://scripts/logger.gd")
-
-class_name EQSAdapter
+const PetLogger = preload("res://scripts/logger.gd")
 
 ## 信号
 signal eqs_result_ready(query_id: String, response: Dictionary)
@@ -85,9 +83,9 @@ func handle_query(query_data: Dictionary) -> void:
 ## @param config: 查询配置（来自服务端）
 ## @param context: 查询上下文
 func execute_query(query_id: String, config: Dictionary, context: Dictionary) -> void:
-	Logger.log("EQSAdapter", "=== Starting query %s ===" % query_id)
-	Logger.log("EQSAdapter", "Config: %s" % str(config))
-	Logger.log("EQSAdapter", "Context: %s" % str(context))
+	PetLogger.info("EQSAdapter", "=== Starting query %s ===" % query_id)
+	PetLogger.info("EQSAdapter", "Config: %s" % str(config))
+	PetLogger.info("EQSAdapter", "Context: %s" % str(context))
 
 	# 验证context完整性
 	if not context.has("querier_position"):
@@ -106,8 +104,8 @@ func execute_query(query_id: String, config: Dictionary, context: Dictionary) ->
 	var tests = config.get("tests", [])
 	var options = config.get("options", {})
 
-	Logger.log("EQSAdapter", "Generator type: %s, params: %s" % [generator_type, str(generator_params)])
-	Logger.log("EQSAdapter", "Tests: %s" % str(tests))
+	PetLogger.info("EQSAdapter", "Generator type: %s, params: %s" % [generator_type, str(generator_params)])
+	PetLogger.info("EQSAdapter", "Tests: %s" % str(tests))
 
 	# 1. 生成候选点
 	var candidate_points = _generate_points(generator_type, generator_params, context)

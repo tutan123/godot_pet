@@ -5,6 +5,7 @@ extends CharacterBody3D
 ## 100% 还原原始动画循环与物理同步逻辑，同时保持模块化架构
 
 const PetData = preload("res://scripts/pet_data.gd")
+const PetLogger = preload("res://scripts/logger.gd")
 const PetInputScript = preload("res://scripts/pet_input.gd")
 const PetPhysicsScript = preload("res://scripts/pet_physics.gd")
 const PetAnimationScript = preload("res://scripts/pet_animation.gd")
@@ -12,7 +13,6 @@ const PetInteractionScript = preload("res://scripts/pet_interaction.gd")
 const PetMessagingScript = preload("res://scripts/pet_messaging.gd")
 const EQSAdapterScript = preload("res://scripts/eqs_adapter.gd")
 const SceneObjectSyncScript = preload("res://scripts/scene_object_sync.gd")
-const Logger = preload("res://scripts/logger.gd")
 
 @onready var animation_tree: AnimationTree = $AnimationTree
 @onready var ws_client = get_node_or_null("/root/Main/WebSocketClient")
@@ -442,7 +442,7 @@ func _on_eqs_query_received(d: Dictionary) -> void:
 	_log("[EQS] Executing query: %s" % query_id)
 
 func _log(msg: String) -> void:
-	Logger.log("System", msg)
+	PetLogger.info("System", msg)
 
 func _execute_dynamic_scene(steps: Array) -> void:
 	is_executing_scene = true

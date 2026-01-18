@@ -3,6 +3,7 @@ extends Node
 ## pet_messaging.gd
 ## 消息处理模块：负责 WebSocket 消息的发送和接收处理
 
+const PetLogger = preload("res://scripts/logger.gd")
 const PetData = preload("res://scripts/pet_data.gd")
 
 ## 信号定义
