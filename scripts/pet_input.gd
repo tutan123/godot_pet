@@ -4,7 +4,8 @@ extends Node
 ## 输入处理模块：负责获取和处理用户输入
 
 const PetData = preload("res://scripts/pet_data.gd")
-const PetLogger = preload("res://scripts/logger.gd")
+const PetLoggerScript = preload("res://scripts/pet_logger.gd")
+@onready var PetLogger = PetLoggerScript.new()
 
 ## 获取输入数据
 func get_input_data():

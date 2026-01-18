@@ -1,6 +1,7 @@
 extends Node
 
-const PetLogger = preload("res://scripts/logger.gd")
+const PetLoggerScript = preload("res://scripts/pet_logger.gd")
+@onready var PetLogger = PetLoggerScript.new()
 
 ## scene_object_sync.gd
 ## 场景对象同步模块：定期上报场景中的对象位置（如小球）

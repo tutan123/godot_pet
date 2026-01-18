@@ -3,7 +3,8 @@ extends Node
 ## eqs_adapter.gd
 ## EQS 客户端适配器：轻量级适配器，将服务端查询配置转换为 Godot API 调用
 
-const PetLogger = preload("res://scripts/logger.gd")
+const PetLoggerScript = preload("res://scripts/pet_logger.gd")
+@onready var PetLogger = PetLoggerScript.new()
 
 ## 信号
 signal eqs_result_ready(query_id: String, response: Dictionary)

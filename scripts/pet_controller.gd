@@ -5,7 +5,8 @@ extends CharacterBody3D
 ## 100% 还原原始动画循环与物理同步逻辑，同时保持模块化架构
 
 const PetData = preload("res://scripts/pet_data.gd")
-const PetLogger = preload("res://scripts/logger.gd")
+const PetLoggerScript = preload("res://scripts/pet_logger.gd")
+@onready var PetLogger = PetLoggerScript.new()
 const PetInputScript = preload("res://scripts/pet_input.gd")
 const PetPhysicsScript = preload("res://scripts/pet_physics.gd")
 const PetAnimationScript = preload("res://scripts/pet_animation.gd")

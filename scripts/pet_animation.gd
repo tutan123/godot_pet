@@ -4,7 +4,8 @@ extends Node
 ## 动画管理模块：状态驱动与循环保护（修正语法版）
 
 const PetData = preload("res://scripts/pet_data.gd")
-const PetLogger = preload("res://scripts/logger.gd")
+const PetLoggerScript = preload("res://scripts/pet_logger.gd")
+@onready var PetLogger = PetLoggerScript.new()
 
 signal anim_state_changed(old_state: int, new_state: int)
 signal procedural_anim_finished(anim_name: String)

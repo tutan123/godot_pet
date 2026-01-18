@@ -1,6 +1,7 @@
 extends Node
 
-const PetLogger = preload("res://scripts/logger.gd")
+const PetLoggerScript = preload("res://scripts/pet_logger.gd")
+@onready var PetLogger = PetLoggerScript.new()
 
 ## audio_recorder.gd
 ## 音频录制模块：负责录制麦克风音频并转换为PCM格式
