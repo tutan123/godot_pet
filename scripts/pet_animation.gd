@@ -106,6 +106,22 @@ func normalize_action_name(n: String) -> String:
 func is_procedural_anim(n: String) -> bool:
 	return n in ["wave", "spin", "bounce", "fly", "roll", "shake", "flip", "dance"]
 
+## 检查是否正在播放特殊（非循环/持续型）动画
+func is_playing_special_anim() -> bool:
+	# 程序化动作中，WAVE 和 FLIP 是有明确结束意义的
+	if proc_anim_type in [PetData.ProcAnimType.WAVE, PetData.ProcAnimType.FLIP]:
+		# 如果播放时间超过了预设时间（WAVE 2.5s, FLIP 2.0s），认为结束
+		var duration = 2.5 if proc_anim_type == PetData.ProcAnimType.WAVE else 2.0
+		return proc_time < duration
+	
+	# 如果正在播放 AnimationPlayer 里的非循环动画
+	if anim_player and anim_player.is_playing():
+		var anim = anim_player.get_animation(anim_player.current_animation)
+		if anim and anim.loop_mode == Animation.LOOP_NONE:
+			return true
+			
+	return false
+
 func clear_procedural_anim_state() -> void:
 	if proc_anim_type == PetData.ProcAnimType.WAVE or proc_anim_type == PetData.ProcAnimType.FLIP:
 		# 恢复动画树控制

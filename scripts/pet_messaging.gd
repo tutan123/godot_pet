@@ -199,7 +199,11 @@ func send_state_sync(character_body: CharacterBody3D, current_anim_state: int, i
 		"is_moving_locally": is_moving_locally,
 		"is_jump_pressed": is_jump_pressed,
 		"velocity": [character_body.velocity.x, character_body.velocity.y, character_body.velocity.z],
-		"stage_position": stage_position  # 新增：舞台位置
+		"stage_position": stage_position,  # 新增：舞台位置
+		# 战术状态同步 (符合马尔可夫性，让大脑感知物理状态机)
+		"jump_push_pending": character_body.physics_module.jump_push_pending if "physics_module" in character_body else false,
+		"jump_start_height": character_body.physics_module.jump_start_height if "physics_module" in character_body else 0.0,
+		"is_playing_special_anim": character_body.animation_module.is_playing_special_anim() if "animation_module" in character_body else false
 	})
 
 ## 更新状态同步定时器

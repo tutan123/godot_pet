@@ -24,11 +24,11 @@ var is_server_moving: bool = false
 var is_flying: bool = false
 var use_high_freq_sync: bool = false
 
-# --- 战术状态变量 (内部维护，不侵入核心) ---
-var _jump_push_pending: bool = false
-var _jump_start_height: float = 0.0
-var _jump_phase_2_threshold: float = 0.2 # 拔高 0.2 米再前冲
-var _mid_air_push_speed: float = 5.0    # 空中前冲初速度
+# --- 战术状态变量 (公开，便于状态同步) ---
+var jump_push_pending: bool = false
+var jump_start_height: float = 0.0
+var jump_phase_2_threshold: float = 0.2 # 拔高 0.2 米再前冲
+var mid_air_push_speed: float = 5.0    # 空中前冲初速度
 
 ## 计算移动数据
 func calculate_movement(input_data, current_position: Vector3, _delta: float):
@@ -65,6 +65,8 @@ func calculate_movement(input_data, current_position: Vector3, _delta: float):
 			is_server_moving = false
 			is_flying = false
 			movement.target_anim_state = PetData.AnimState.IDLE
+			movement.direction = Vector3.ZERO
+			movement.speed = 0.0
 			print("[Physics] Arrival deadzone hit, stopping velocity.")
 			
 	else:
@@ -86,15 +88,15 @@ func apply_physics(character_body: CharacterBody3D, delta: float) -> void:
 ## 注意：此函数仅在AI控制模式下调用，用户控制时完全不介入
 ## 战术逻辑由EQS查询后的AI决策触发，不会影响用户手动控制
 func process_tactical_logic(character_body: CharacterBody3D, _input_data = null):
-	if _jump_push_pending and not character_body.is_on_floor() and character_body.velocity.y > 0:
-		var gain = character_body.global_position.y - _jump_start_height
-		if gain > _jump_phase_2_threshold:
+	if jump_push_pending and not character_body.is_on_floor() and character_body.velocity.y > 0:
+		var gain = character_body.global_position.y - jump_start_height
+		if gain > jump_phase_2_threshold:
 			var dir = (target_position - character_body.global_position).normalized()
 			dir.y = 0
 			if dir.length() > 0.1:
-				character_body.velocity.x = dir.x * _mid_air_push_speed
-				character_body.velocity.z = dir.z * _mid_air_push_speed
-				_jump_push_pending = false
+				character_body.velocity.x = dir.x * mid_air_push_speed
+				character_body.velocity.z = dir.z * mid_air_push_speed
+				jump_push_pending = false
 				return "Jump phase 2: Mid-air forward push at height +%.2f" % gain
 	return null
 
@@ -102,8 +104,8 @@ func process_tactical_logic(character_body: CharacterBody3D, _input_data = null)
 ## with_push: 是否启用空中战术前冲（AI脱困时使用，手动跳跃不启用）
 func execute_jump(character_body: CharacterBody3D, with_push: bool = false):
 	character_body.velocity.y = jump_velocity
-	_jump_push_pending = with_push 
-	_jump_start_height = character_body.global_position.y
+	jump_push_pending = with_push 
+	jump_start_height = character_body.global_position.y
 	jump_triggered.emit(jump_velocity)
 	return "Jump phase 1: Vertical lift-off (v_y: %.1f)" % jump_velocity
 
@@ -125,7 +127,7 @@ func apply_movement(movement_data, character_body: CharacterBody3D, delta: float
 			return
 		else:
 			# AI控制模式：支持战术逻辑
-			if _jump_push_pending:
+			if jump_push_pending:
 				# 战术起跳第一阶段：暂时锁定水平速度，等待拔高
 				return 
 			else:

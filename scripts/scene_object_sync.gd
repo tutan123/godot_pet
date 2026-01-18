@@ -84,3 +84,4 @@ func _sync_objects():
 		ws_client.send_message("scene_object_sync", {
 			"objects": objects
 		})
+		# print("[SceneObjectSync] Synced %d objects" % objects.size())

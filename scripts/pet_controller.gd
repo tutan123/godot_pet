@@ -210,6 +210,8 @@ func _physics_process(delta: float) -> void:
 	if interaction_module.is_dragging:
 		is_executing_scene = false
 		interaction_module.handle_dragging(delta, self, mesh_root, animation_module.proc_time)
+		# 即使在拖拽中也要同步状态，确保前端 isDragging 更新
+		_sync_animation_and_report(delta, false)
 		return
 
 	if is_executing_scene:
@@ -222,9 +224,8 @@ func _physics_process(delta: float) -> void:
 	var has_user_input = input_data.direction.length() > 0.1 or input_data.jump_pressed or input_data.jump_just_pressed
 	if has_user_input:
 		control_mode = PetData.ControlMode.USER
-		is_moving_to_click = false
-		is_server_moving = false
-		target_position = global_position
+		# 不再强行清空服务器状态，而是标记用户正在干预
+		# 物理引擎在 USER 模式下会自动优先响应本地输入
 	else:
 		# 没有用户输入时，根据服务器指令判断控制模式
 		if is_server_moving or is_moving_to_click:
@@ -288,9 +289,19 @@ func _sync_animation_and_report(delta: float, is_doing_important_action: bool) -
 		var h_speed = Vector2(velocity.x, velocity.z).length()
 		var t_state = PetData.AnimState.IDLE
 		var b_pos = 0.0
-		if h_speed > 0.1:
-			t_state = PetData.AnimState.RUN if h_speed > walk_speed * 1.1 else PetData.AnimState.WALK
-			b_pos = clamp(h_speed / run_speed, 0.3, 1.0)
+		
+		# 修复：即使碰撞停止了速度，只要 AI 意图还在移动，就保持移动动画
+		var is_trying_to_move = is_server_moving or is_moving_to_click
+		
+		if h_speed > 0.1 or is_trying_to_move:
+			# 如果速度很低但正在尝试移动，强制使用 WALK 动画，防止原地踏步或切回 IDLE
+			if h_speed < 0.5 and is_trying_to_move:
+				t_state = PetData.AnimState.WALK
+				b_pos = 0.3
+			else:
+				t_state = PetData.AnimState.RUN if h_speed > walk_speed * 1.1 else PetData.AnimState.WALK
+				b_pos = clamp(h_speed / run_speed, 0.3, 1.0)
+		
 		if current_anim_state != t_state:
 			animation_module.set_anim_state(t_state)
 		if animation_tree:
@@ -312,7 +323,10 @@ func _on_action_state_applied(state: Dictionary) -> void:
 		is_flying = true
 		velocity.y = 8.0
 	elif a == "jump":
-		physics_module.execute_jump(self, false)  # 服务器跳跃不启用空中战术前冲
+		# 战术跳跃（空中前冲）仅在AI控制模式下使用（EQS/LLM指令）
+		# 用户手动控制或点击移动不使用战术跳跃，保持解耦
+		var is_tactical = control_mode == PetData.ControlMode.AI and is_server_moving
+		physics_module.execute_jump(self, is_tactical)
 
 func _on_ws_message(type: String, data: Dictionary) -> void:
 	messaging_module.handle_ws_message(type, data, animation_tree)
