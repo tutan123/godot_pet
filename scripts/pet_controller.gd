@@ -12,6 +12,7 @@ const PetInteractionScript = preload("res://scripts/pet_interaction.gd")
 const PetMessagingScript = preload("res://scripts/pet_messaging.gd")
 const EQSAdapterScript = preload("res://scripts/eqs_adapter.gd")
 const SceneObjectSyncScript = preload("res://scripts/scene_object_sync.gd")
+const Logger = preload("res://scripts/logger.gd")
 
 @onready var animation_tree: AnimationTree = $AnimationTree
 @onready var ws_client = get_node_or_null("/root/Main/WebSocketClient")
@@ -78,7 +79,11 @@ func _ready() -> void:
 	var anim_p = mesh_root.get_node_or_null("AnimationPlayer")
 	if anim_p:
 		animation_module.anim_player = anim_p
-		for anim_n in ["idle", "stand", "walk", "run", "jump"]:
+
+	# 🎯 P1：初始化BlendTree扩展（连续状态空间）
+	animation_module._init_blend_tree_extensions()
+
+	for anim_n in ["idle", "stand", "walk", "run", "jump"]:
 			if anim_p.has_animation(anim_n):
 				var anim = anim_p.get_animation(anim_n)
 				if anim:
@@ -167,6 +172,7 @@ func _connect_signals() -> void:
 	animation_module.procedural_anim_finished.connect(_on_procedural_finished)
 	eqs_adapter.eqs_result_ready.connect(_on_eqs_result_ready)
 	messaging_module.action_state_applied.connect(_on_action_state_applied)
+	messaging_module.status_updated.connect(_on_status_updated)
 	messaging_module.move_to_received.connect(_on_move_to_received)
 	messaging_module.position_set_received.connect(_on_position_set_received)
 	messaging_module.scene_received.connect(_on_scene_received)
@@ -328,6 +334,24 @@ func _on_action_state_applied(state: Dictionary) -> void:
 		var is_tactical = control_mode == PetData.ControlMode.AI and is_server_moving
 		physics_module.execute_jump(self, is_tactical)
 
+## 🎯 P1：连续状态空间 - 客户端参数映射
+func _on_status_updated(status: Dictionary) -> void:
+	# 将服务端的连续状态值映射为动画树参数，实现平滑过渡
+	var energy = status.get("energy", 100.0)  # 0-100
+	var boredom = status.get("boredom", 0.0)  # 0-100
+	var emotion = status.get("emotion", 0.5)  # 0.0-1.0
+
+	# 归一化并设置BlendTree参数
+	if animation_tree:
+		# Energy影响整体动画的"活力"程度 (0.0 = 疲惫, 1.0 = 精力充沛)
+		var normalized_energy = energy / 100.0
+		animation_tree.set("parameters/energy_blend/blend_position", normalized_energy)
+
+		# Emotion影响动画的情感表现 (0.0 = 悲伤, 1.0 = 快乐)
+		animation_tree.set("parameters/emotion_blend/blend_position", emotion)
+
+	_log("[Status] Updated continuous states - Energy: %.1f, Emotion: %.2f" % [energy, emotion])
+
 func _on_ws_message(type: String, data: Dictionary) -> void:
 	messaging_module.handle_ws_message(type, data, animation_tree)
 
@@ -418,11 +442,7 @@ func _on_eqs_query_received(d: Dictionary) -> void:
 	_log("[EQS] Executing query: %s" % query_id)
 
 func _log(msg: String) -> void:
-	var now = Time.get_ticks_msec()
-	if not ("phase" in msg or "Executing" in msg) and log_history.has(msg) and now - log_history[msg] < LOG_COOLDOWN_MS:
-		return
-	log_history[msg] = now
-	print("[%s] %s" % [Time.get_time_string_from_system(), msg])
+	Logger.log("System", msg)
 
 func _execute_dynamic_scene(steps: Array) -> void:
 	is_executing_scene = true

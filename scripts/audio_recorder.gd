@@ -3,6 +3,8 @@ extends Node
 ## audio_recorder.gd
 ## 音频录制模块：负责录制麦克风音频并转换为PCM格式
 
+const Logger = preload("res://scripts/logger.gd")
+
 signal audio_chunk_ready(audio_data: PackedByteArray)
 
 var recording: bool = false
@@ -65,12 +67,12 @@ func start_recording() -> void:
 	if recording_index == -1:
 		recording_index = AudioServer.get_bus_index("Record")
 		if recording_index == -1:
-			print("[Audio] Error: Could not find 'Record' bus")
+			Logger.error("Audio", "Could not find 'Record' bus")
 			recording = false
 			return
 	
 	effect.set_recording_active(true)
-	print("[Audio] Recording started on bus: ", recording_index)
+	Logger.log("Audio", "Recording started on bus: %d" % recording_index)
 
 func stop_recording() -> PackedByteArray:
 	if not recording:

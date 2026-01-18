@@ -23,19 +23,32 @@ var current_action_state: Dictionary = {}
 var proc_rot_y: float = 0.0
 var proc_rot_x: float = 0.0
 
+## 初始化BlendTree扩展（连续状态空间）
+func _init_blend_tree_extensions() -> void:
+	if not animation_tree:
+		return
+
+	# 🎯 P1：连续状态空间 - BlendTree结构扩展
+	# 动态添加EmotionBlend和EnergyBlend参数支持
+	# 注意：实际的Blend节点需要在Godot编辑器中手动添加，这里只设置参数
+
+	# 初始化连续状态参数
+	animation_tree.set("parameters/emotion_blend/blend_position", 0.5)  # 0.0-1.0
+	animation_tree.set("parameters/energy_blend/blend_position", 0.5)   # 0.0-1.0
+
 ## 设置动画状态
 func set_anim_state(new_state: int, force: bool = false) -> void:
 	if not force and current_anim_state == new_state:
 		return
-	
+
 	if not animation_tree:
 		return
-	
+
 	var prev_state = current_anim_state
-	
+
 	if not animation_tree.active:
 		animation_tree.active = true
-	
+
 	# 同步混合树参数
 	match new_state:
 		PetData.AnimState.IDLE:
@@ -44,7 +57,7 @@ func set_anim_state(new_state: int, force: bool = false) -> void:
 			animation_tree.set("parameters/jump_blend/blend_amount", 0.0)
 		PetData.AnimState.JUMP:
 			animation_tree.set("parameters/jump_blend/blend_amount", 1.0)
-	
+
 	current_anim_state = new_state
 	anim_state_changed.emit(prev_state, new_state)
 

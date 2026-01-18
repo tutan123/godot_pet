@@ -80,64 +80,45 @@ func _handle_single_action_data(action_data: Variant, animation_tree: AnimationT
 	apply_action_state({
 		"name": action_name,
 		"priority": 50,
-		"duration": 3000,
-		"interruptible": true,
-		"timestamp": Time.get_unix_time_from_system()
+		"interruptible": true
 	}, animation_tree)
 
-## 应用动作状态
+## 应用动作状态（马尔可夫性优化：事件驱动）
 func apply_action_state(action_state: Dictionary, animation_tree: AnimationTree) -> void:
 	var action_name = action_state.get("name", "idle").to_lower()
 	var priority = action_state.get("priority", 50)
-	var duration_ms = action_state.get("duration", 3000)
 	var interruptible = action_state.get("interruptible", true)
-	var timestamp = action_state.get("timestamp", Time.get_unix_time_from_system())
-	
-	# 检查优先级和中断规则
+
+	# 🎯 马尔可夫性核心：优先级判断只基于当前状态，不依赖历史时间
 	var current_priority = current_action_state.get("priority", 0)
-	var current_duration = current_action_state.get("duration", 0)
-	var current_start_time = current_action_state.get("start_time", 0.0)
 	var current_interruptible = current_action_state.get("interruptible", true)
-	var elapsed = (Time.get_unix_time_from_system() - current_start_time) * 1000.0
-	
-	# 判断是否应该中断当前动作
+
+	# 判断是否应该中断当前动作（纯状态驱动）
 	var should_interrupt = false
 	if current_action_state.is_empty():
-		should_interrupt = true
+		should_interrupt = true  # 无当前动作，直接执行
 	elif priority > current_priority:
-		should_interrupt = true
-	elif interruptible and current_interruptible:
-		if priority >= current_priority:
-			should_interrupt = true
-	elif elapsed >= current_duration:
-		should_interrupt = true
-	
+		should_interrupt = true  # 更高优先级，中断当前
+	elif interruptible and current_interruptible and priority >= current_priority:
+		should_interrupt = true  # 同等优先级但都可中断
+
 	if should_interrupt:
-		# 马尔可夫性修复：直接更新当前状态，不依赖时间锁定
+		# 更新当前动作状态（去掉所有时间相关字段）
 		current_action_state = {
 			"name": action_name,
 			"priority": priority,
-			"duration": duration_ms,
 			"interruptible": interruptible,
-			"start_time": Time.get_unix_time_from_system(),
-			"timestamp": timestamp
+			"is_locomotion": action_name in ["walk", "run", "idle"]
 		}
-		
-		# 基础移动动作：标记为 locomotion，不清除状态以保留语义
-		current_action_state = {
-			"name": action_name,
-			"priority": priority,
-			"is_locomotion": action_name in ["walk", "run", "idle"],
-			"start_time": Time.get_unix_time_from_system()
-		}
-		
+
+		# 处理基础移动动作
 		if current_action_state.is_locomotion:
 			action_lock_time = 0.0
 			if animation_tree and action_state.has("speed"):
 				var speed_normalized = action_state.get("speed", 0.5)
 				animation_tree.set("parameters/locomotion/blend_position", speed_normalized)
 		else:
-			# 非基础移动动作：立即发出信号
+			# 非基础移动动作：发出信号，等待动画完成信号清除状态
 			action_lock_time = 0.0
 			action_state_applied.emit(current_action_state)
 
