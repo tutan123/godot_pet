@@ -118,14 +118,15 @@ func apply_movement(movement_data, character_body: CharacterBody3D, delta: float
 	var is_user_control = control_mode == PetData.ControlMode.USER
 	
 	if is_jumping_up:
-		# 用户控制时：空中移动和地面一样丝滑，直接响应输入
+		# 用户控制时：空中移动零延迟响应，直接设置速度
 		if is_user_control:
-			var target_x = movement_data.direction.x * movement_data.speed
-			var target_z = movement_data.direction.z * movement_data.speed
 			if movement_data.direction.length() > 0.05:
-				# 用户控制时使用更快的响应速度，确保流畅
-				character_body.velocity.x = lerp(character_body.velocity.x, target_x, 8.0 * delta)
-				character_body.velocity.z = lerp(character_body.velocity.z, target_z, 8.0 * delta)
+				# 零延迟响应：直接设置目标速度，无插值
+				character_body.velocity.x = movement_data.direction.x * movement_data.speed
+				character_body.velocity.z = movement_data.direction.z * movement_data.speed
+			else:
+				# 没有输入时保持当前水平速度（惯性）
+				pass
 			return
 		else:
 			# AI控制模式：支持战术逻辑
@@ -137,8 +138,9 @@ func apply_movement(movement_data, character_body: CharacterBody3D, delta: float
 				var target_x = movement_data.direction.x * movement_data.speed
 				var target_z = movement_data.direction.z * movement_data.speed
 				if movement_data.direction.length() > 0.05:
-					character_body.velocity.x = lerp(character_body.velocity.x, target_x, 2.0 * delta)
-					character_body.velocity.z = lerp(character_body.velocity.z, target_z, 2.0 * delta)
+					# 提高空中移动响应速度，减少延迟
+					character_body.velocity.x = lerp(character_body.velocity.x, target_x, 6.0 * delta)
+					character_body.velocity.z = lerp(character_body.velocity.z, target_z, 6.0 * delta)
 				return
 
 	# 常规地面移动逻辑
