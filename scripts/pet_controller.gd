@@ -14,6 +14,7 @@ const PetInteractionScript = preload("res://scripts/pet_interaction.gd")
 const PetMessagingScript = preload("res://scripts/pet_messaging.gd")
 const EQSAdapterScript = preload("res://scripts/eqs_adapter.gd")
 const SceneObjectSyncScript = preload("res://scripts/scene_object_sync.gd")
+const MobileUIControllerScript = preload("res://scripts/mobile_ui/mobile_ui_controller.gd")
 
 @onready var animation_tree: AnimationTree = $AnimationTree
 @onready var ws_client = get_node_or_null("/root/Main/WebSocketClient")
@@ -27,6 +28,7 @@ var interaction_module
 var messaging_module
 var eqs_adapter: Node # 改为通用 Node 类型
 var scene_object_sync: Node
+var mobile_ui: Node
 
 # --- 核心可调参数 ---
 @export var walk_speed: float = 3.0
@@ -74,6 +76,9 @@ func _ready() -> void:
 	add_child(eqs_adapter)
 	scene_object_sync = SceneObjectSyncScript.new()
 	add_child(scene_object_sync)
+	
+	mobile_ui = MobileUIControllerScript.new()
+	add_child(mobile_ui)
 	
 	animation_module.animation_tree = animation_tree
 	animation_module.mesh_root = mesh_root
@@ -194,6 +199,14 @@ func _input_event(_camera: Camera3D, event: InputEvent, _position: Vector3, _nor
 		interaction_module.handle_input_event(event, self, mesh_root, animation_module.proc_time, animation_module.proc_anim_type)
 
 func _input(event: InputEvent) -> void:
+	# 按 M 键测试移动 UI
+	if event is InputEventKey and event.pressed and event.keycode == KEY_M:
+		_test_mobile_ui()
+	# 按 U 键测试 UI 同步
+	if event is InputEventKey and event.pressed and event.keycode == KEY_U:
+		if mobile_ui and mobile_ui.has_method("test_ui_sync"):
+			mobile_ui.test_ui_sync()
+		
 	# 捕获全局鼠标移动和松开事件，用于处理拖拽启动和结束
 	if interaction_module:
 		# 只有在可能发生拖拽（已按下或正在拖拽）时才捕获全局事件
@@ -441,6 +454,32 @@ func _on_eqs_query_received(d: Dictionary) -> void:
 	# 执行查询
 	eqs_adapter.execute_query(query_id, config, context)
 	_log("[EQS] Executing query: %s" % query_id)
+
+func _test_mobile_ui() -> void:
+	if not mobile_ui:
+		return
+		
+	_log("[MobileUI] Creating test panel...")
+	
+	var config = {
+		"type": "form",
+		"size": Vector2(400, 300),
+		"position": global_position + global_transform.basis.z * 2.0 + Vector3(0, 1.5, 0),
+		"scale": Vector3(0.1, 0.1, 0.1),
+		"content": {
+			"title": "萌宠控制面板",
+			"fields": [
+				{"label": "用户名", "input_type": "text", "value": "PetOwner"},
+				{"label": "心情", "input_type": "select", "options": ["开心", "难过", "调皮"], "selected": 0}
+			],
+			"buttons": [
+				{"text": "打个招呼", "action": "wave"},
+				{"text": "跳一下", "action": "jump"}
+			]
+		}
+	}
+	
+	mobile_ui.create_mobile_ui_panel("pet_control", config)
 
 func _log(msg: String) -> void:
 	PetLogger.info("System", msg)

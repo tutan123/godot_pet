@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AGUI - 高级图形用户界面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            padding: 1rem;
+            gap: 1rem;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+        }
+
+        .main-panel {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .control-section {
+            margin-bottom: 2rem;
+        }
+
+        .control-section h3 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 0.5rem;
+        }
+
+        .input-group {
+            margin-bottom: 1rem;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .text-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .text-input:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .button-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .button-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .button-secondary {
+            background: #f8f9fa;
+            color: #495057;
+            border: 2px solid #e9ecef;
+        }
+
+        .button-secondary:hover {
+            background: #e9ecef;
+        }
+
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .status-panel {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            border-left: 4px solid #28a745;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .status-value {
+            font-weight: 600;
+        }
+
+        .status-connected { color: #28a745; }
+        .status-disconnected { color: #dc3545; }
+        .status-loading { color: #ffc107; }
+
+        .chat-messages {
+            flex: 1;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+        }
+
+        .message {
+            margin-bottom: 0.75rem;
+            padding: 0.5rem;
+            border-radius: 6px;
+            max-width: 80%;
+        }
+
+        .message-user {
+            background: #007bff;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+
+        .message-assistant {
+            background: #e9ecef;
+            color: #333;
+        }
+
+        .message-timestamp {
+            font-size: 0.8rem;
+            opacity: 0.7;
+            margin-bottom: 0.25rem;
+        }
+
+        .animation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .animation-button {
+            padding: 0.5rem;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .animation-button:hover {
+            border-color: #3498db;
+            background: #f8f9ff;
+        }
+
+        .animation-button.active {
+            background: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        .connection-indicator {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #dc3545;
+            transition: background-color 0.3s ease;
+        }
+
+        .connection-indicator.connected {
+            background: #28a745;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🐧 AGUI - 高级图形用户界面</h1>
+    </div>
+
+    <div class="main-content">
+        <div class="sidebar">
+            <div class="control-section">
+                <h3>🎯 指令控制</h3>
+                <div class="input-group">
+                    <label for="textCommand">文字指令：</label>
+                    <input type="text" id="textCommand" class="text-input" placeholder="输入指令，如：跳舞、跑步、睡觉...">
+                </div>
+                <button id="sendCommand" class="button button-primary">发送指令</button>
+            </div>
+
+            <div class="control-section">
+                <h3>🎭 动画控制</h3>
+                <div class="animation-grid" id="animationGrid">
+                    <!-- 动画按钮将通过JavaScript动态生成 -->
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h3>📊 状态监控</h3>
+                <div class="status-panel">
+                    <div class="status-item">
+                        <span>连接状态：</span>
+                        <span id="connectionStatus" class="status-value status-disconnected">未连接</span>
+                    </div>
+                    <div class="status-item">
+                        <span>能量值：</span>
+                        <span id="energyValue" class="status-value">100</span>
+                    </div>
+                    <div class="status-item">
+                        <span>无聊度：</span>
+                        <span id="boredomValue" class="status-value">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span>当前动作：</span>
+                        <span id="currentAction" class="status-value">IDLE</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-panel">
+            <div class="control-section">
+                <h3>💬 对话记录</h3>
+                <div id="chatMessages" class="chat-messages">
+                    <!-- 消息将通过JavaScript动态添加 -->
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h3>🎮 高级控制</h3>
+                <div class="action-buttons">
+                    <button id="resetPosition" class="button button-secondary">重置位置</button>
+                    <button id="randomAction" class="button button-secondary">随机动作</button>
+                    <button id="toggleAI" class="button button-secondary">切换AI</button>
+                    <button id="saveState" class="button button-secondary">保存状态</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="connectionIndicator" class="connection-indicator"></div>
+
+    <script>
+        class AGUIController {
+            constructor() {
+                this.ws = null;
+                this.isConnected = false;
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                this.animations = [
+                    'IDLE', 'WALK', 'RUN', 'JUMP', 'WAVE', 'DANCE', 'SPIN',
+                    'SHIVER', 'SLEEP', 'BOW', 'NO', 'YES', 'EAT', 'SURPRISE',
+                    'ANGRY', 'SAD', 'HAPPY', 'THINK', 'SIT', 'FIGHT', 'LOVE'
+                ];
+
+                this.init();
+            }
+
+            init() {
+                this.createAnimationButtons();
+                this.bindEvents();
+                this.connectWebSocket();
+            }
+
+            createAnimationButtons() {
+                const grid = document.getElementById('animationGrid');
+                this.animations.forEach(animation => {
+                    const button = document.createElement('button');
+                    button.className = 'animation-button';
+                    button.textContent = animation;
+                    button.dataset.animation = animation;
+                    button.addEventListener('click', () => this.playAnimation(animation));
+                    grid.appendChild(button);
+                });
+            }
+
+            bindEvents() {
+                // 指令输入
+                document.getElementById('sendCommand').addEventListener('click', () => {
+                    this.sendTextCommand();
+                });
+
+                document.getElementById('textCommand').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.sendTextCommand();
+                    }
+                });
+
+                // 高级控制按钮
+                document.getElementById('resetPosition').addEventListener('click', () => {
+                    this.sendCommand('reset_position');
+                });
+
+                document.getElementById('randomAction').addEventListener('click', () => {
+                    this.sendCommand('random_action');
+                });
+
+                document.getElementById('toggleAI').addEventListener('click', () => {
+                    this.sendCommand('toggle_ai');
+                });
+
+                document.getElementById('saveState').addEventListener('click', () => {
+                    this.sendCommand('save_state');
+                });
+            }
+
+            connectWebSocket() {
+                try {
+                    this.ws = new WebSocket('ws://localhost:8080');
+
+                    this.ws.onopen = () => {
+                        console.log('AGUI WebSocket connected');
+                        this.isConnected = true;
+                        this.reconnectAttempts = 0;
+                        this.updateConnectionStatus(true);
+                        this.sendHandshake();
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        this.handleMessage(event.data);
+                    };
+
+                    this.ws.onclose = () => {
+                        console.log('AGUI WebSocket disconnected');
+                        this.isConnected = false;
+                        this.updateConnectionStatus(false);
+                        this.attemptReconnect();
+                    };
+
+                    this.ws.onerror = (error) => {
+                        console.error('AGUI WebSocket error:', error);
+                        this.updateConnectionStatus(false);
+                    };
+
+                } catch (error) {
+                    console.error('Failed to connect WebSocket:', error);
+                    this.attemptReconnect();
+                }
+            }
+
+            attemptReconnect() {
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+
+                    setTimeout(() => {
+                        this.connectWebSocket();
+                    }, 2000 * this.reconnectAttempts);
+                } else {
+                    console.error('Max reconnection attempts reached');
+                    this.updateConnectionStatus(false, '连接失败');
+                }
+            }
+
+            sendHandshake() {
+                this.sendMessage('handshake', {
+                    client_type: 'agui_browser',
+                    version: '1.0',
+                    capabilities: ['ui_interaction', 'command_input', 'status_display']
+                });
+            }
+
+            sendMessage(type, data) {
+                if (!this.isConnected) {
+                    console.warn('WebSocket not connected, message not sent:', type);
+                    return;
+                }
+
+                const message = {
+                    type: type,
+                    timestamp: Date.now(),
+                    data: data
+                };
+
+                this.ws.send(JSON.stringify(message));
+            }
+
+            sendCommand(command, params = {}) {
+                this.sendMessage('agui_command', {
+                    command: command,
+                    params: params
+                });
+            }
+
+            sendTextCommand() {
+                const input = document.getElementById('textCommand');
+                const text = input.value.trim();
+
+                if (text) {
+                    this.sendCommand('text_instruction', { text: text });
+                    this.addChatMessage('user', text);
+                    input.value = '';
+                }
+            }
+
+            playAnimation(animation) {
+                this.sendCommand('play_animation', { animation: animation });
+
+                // 更新UI状态
+                document.querySelectorAll('.animation-button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                document.querySelector(`[data-animation="${animation}"]`).classList.add('active');
+            }
+
+            handleMessage(data) {
+                try {
+                    const message = JSON.parse(data);
+                    const { type, data: messageData } = message;
+
+                    switch (type) {
+                        case 'pet_status':
+                            this.updatePetStatus(messageData);
+                            break;
+                        case 'chat_message':
+                            this.addChatMessage(messageData.role, messageData.content);
+                            break;
+                        case 'animation_started':
+                            this.onAnimationStarted(messageData.animation);
+                            break;
+                        case 'command_response':
+                            this.onCommandResponse(messageData);
+                            break;
+                        default:
+                            console.log('Unknown message type:', type);
+                    }
+                } catch (error) {
+                    console.error('Failed to parse message:', error);
+                }
+            }
+
+            updatePetStatus(status) {
+                document.getElementById('energyValue').textContent = status.energy || 100;
+                document.getElementById('boredomValue').textContent = status.boredom || 0;
+                document.getElementById('currentAction').textContent = status.current_action || 'IDLE';
+            }
+
+            addChatMessage(role, content) {
+                const messagesContainer = document.getElementById('chatMessages');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message message-${role}`;
+
+                const timestamp = new Date().toLocaleTimeString();
+                messageDiv.innerHTML = `
+                    <div class="message-timestamp">${timestamp}</div>
+                    <div>${content}</div>
+                `;
+
+                messagesContainer.appendChild(messageDiv);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+
+            onAnimationStarted(animation) {
+                console.log('Animation started:', animation);
+                // 可以添加动画播放反馈
+            }
+
+            onCommandResponse(response) {
+                console.log('Command response:', response);
+                if (response.success) {
+                    this.showNotification('命令执行成功', 'success');
+                } else {
+                    this.showNotification('命令执行失败: ' + (response.error || '未知错误'), 'error');
+                }
+            }
+
+            updateConnectionStatus(connected, message = null) {
+                const indicator = document.getElementById('connectionIndicator');
+                const statusText = document.getElementById('connectionStatus');
+
+                if (connected) {
+                    indicator.classList.add('connected');
+                    statusText.textContent = '已连接';
+                    statusText.className = 'status-value status-connected';
+                } else {
+                    indicator.classList.remove('connected');
+                    statusText.textContent = message || '未连接';
+                    statusText.className = 'status-value status-disconnected';
+                }
+            }
+
+            showNotification(message, type = 'info') {
+                // 简单的通知显示，可以扩展为更复杂的通知系统
+                console.log(`[${type.toUpperCase()}] ${message}`);
+
+                // 在页面上显示临时通知
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#ffc107'};
+                    color: white;
+                    padding: 1rem;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    z-index: 10000;
+                    font-weight: 500;
+                `;
+                notification.textContent = message;
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.remove();
+                }, 3000);
+            }
+        }
+
+        // 初始化AGUI控制器
+        document.addEventListener('DOMContentLoaded', () => {
+            window.aguiController = new AGUIController();
+        });
+
+        // 页面事件监听（用于浏览器事件捕获）
+        document.addEventListener('click', (event) => {
+            // 发送点击事件到Godot（如果需要）
+            if (window.aguiController && window.aguiController.isConnected) {
+                window.aguiController.sendMessage('browser_event', {
+                    event_type: 'click',
+                    element_id: event.target.id || '',
+                    element_tag: event.target.tagName || '',
+                    element_text: event.target.textContent?.substring(0, 50) || '',
+                    position: [event.clientX, event.clientY],
+                    timestamp: Date.now()
+                });
+            }
+        });
+
+        document.addEventListener('input', (event) => {
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+                if (window.aguiController && window.aguiController.isConnected) {
+                    window.aguiController.sendMessage('browser_event', {
+                        event_type: 'input',
+                        element_id: event.target.id || '',
+                        input_type: event.target.type || '',
+                        value: event.target.value || ''
+                    });
+                }
+            }
+        });
+    </script>
+</body>
+</html>

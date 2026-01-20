@@ -1,9 +1,13 @@
 extends Node
 
+class_name WebSocketClient
+
 ## WebSocketClient.gd
 ## 处理与 JS 服务端的 WebSocket 通信，包含连接管理、心跳和消息路由。
 
 signal message_received(type: String, data: Dictionary)
+signal browser_event_received(event_type: String, event_data: Dictionary)
+signal browser_command_received(command: String, params: Dictionary)
 signal connected
 signal disconnected
 
@@ -42,6 +46,14 @@ func connect_to_server() -> void:
 		_start_retry_timer()
 	else:
 		set_process(true)
+
+func connect_to_url(url: String) -> void:
+	websocket_url = url
+	connect_to_server()
+
+func disconnect_from_host() -> void:
+	socket.close()
+	_is_connected_to_server = false
 
 func _start_retry_timer() -> void:
 	is_retrying = true
@@ -96,6 +108,11 @@ func send_message(msg_type: String, data: Dictionary) -> void:
 	}
 	socket.send_text(JSON.stringify(message))
 
+func send_json(data: Dictionary) -> void:
+	if socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
+		return
+	socket.send_text(JSON.stringify(data))
+
 func _send_handshake() -> void:
 	send_message("handshake", {
 		"client_type": "godot_robot",
@@ -104,9 +121,48 @@ func _send_handshake() -> void:
 	})
 
 func _handle_json_message(json_str: String) -> void:
+	print("[WebSocket] Received message: ", json_str)
+
 	var json = JSON.new()
 	var err = json.parse(json_str)
-	if err != OK: return
+	if err != OK:
+		print("[WebSocket] JSON parse error: ", err)
+		return
+
 	var message = json.get_data()
-	if typeof(message) != TYPE_DICTIONARY: return
-	message_received.emit(message.get("type", ""), message.get("data", {}))
+	if typeof(message) != TYPE_DICTIONARY:
+		print("[WebSocket] Message is not a dictionary")
+		return
+
+	var message_type = message.get("type", "")
+	print("[WebSocket] Message type: ", message_type)
+
+	var message_data = message.get("data", {})
+
+	# 处理浏览器相关消息
+	if message_type.begins_with("browser_"):
+		_handle_browser_message(message_type, message_data)
+	elif message_type == "agui_command":
+		_handle_agui_command(message_data)
+	else:
+		message_received.emit(message_type, message_data)
+
+func _handle_browser_message(message_type: String, message_data: Dictionary) -> void:
+	match message_type:
+		"browser_event":
+			var event_type = message_data.get("event_type", "")
+			browser_event_received.emit(event_type, message_data)
+		"browser_screenshot":
+			# 浏览器截图消息，由BrowserManager处理
+			message_received.emit(message_type, message_data)
+		"browser_connected", "browser_disconnected":
+			message_received.emit(message_type, message_data)
+		_:
+			print("[WebSocket] Unhandled browser message: ", message_type)
+
+func _handle_agui_command(command_data: Dictionary) -> void:
+	var command = command_data.get("command", "")
+	var params = command_data.get("params", {})
+	browser_command_received.emit(command, params)
+
+	print("[WebSocket] AGUI command received: ", command, " params: ", params)

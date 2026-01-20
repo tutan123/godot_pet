@@ -1,0 +1,204 @@
+[gd_scene load_steps=15 format=3 uid="uid://g2c9xh4m6p7q1"]
+
+[ext_resource type="Script" uid="uid://d9w8yi4l3p6o7" path="res://scripts/virtual_browser_3d.gd" id="1_browser3d"]
+[ext_resource type="Script" uid="uid://e0a9zj5m4q7p8" path="res://scripts/browser_manager.gd" id="2_browser_mgr"]
+[ext_resource type="Script" uid="uid://f1b8zk6m5r8t9" path="res://scripts/browser_input_manager.gd" id="3_browser_input"]
+[ext_resource type="Script" uid="uid://4jidripga0qi" path="res://scripts/websocket_client.gd" id="4_websocket"]
+[ext_resource type="Script" uid="uid://dtfwasb0haqcr" path="res://scripts/config_manager.gd" id="5_config"]
+
+[sub_resource type="Environment" id="Environment_demo"]
+background_mode = 1
+background_color = Color(0.1, 0.1, 0.2, 1)
+ambient_light_color = Color(0.3, 0.3, 0.4, 1)
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="BoxMesh" id="BoxMesh_platform"]
+size = Vector3(10, 0.5, 10)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_platform"]
+albedo_color = Color(0.4, 0.4, 0.4, 1)
+metallic = 0.1
+roughness = 0.8
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_pedestal"]
+height = 2.0
+top_radius = 0.3
+bottom_radius = 0.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_pedestal"]
+albedo_color = Color(0.2, 0.2, 0.3, 1)
+metallic = 0.3
+roughness = 0.7
+
+[node name="BrowserDemo" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_demo")
+
+[node name="DirectionalLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, -0.75, 0.433013, 0, 5, 0)
+light_energy = 1.5
+shadow_enabled = true
+
+[node name="Camera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 3, 5)
+current = true
+fov = 75.0
+
+[node name="Platform" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_platform")
+material/0 = SubResource("StandardMaterial3D_platform")
+
+[node name="Pedestal" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.25, 0)
+mesh = SubResource("CylinderMesh_pedestal")
+material/0 = SubResource("StandardMaterial3D_pedestal")
+
+[node name="ConfigManager" type="Node" parent="."]
+script = ExtResource("5_config")
+
+[node name="WebSocketClient" type="Node" parent="."]
+script = ExtResource("4_websocket")
+websocket_url = "ws://localhost:8080"
+
+[node name="BrowserManager" type="Node" parent="."]
+script = ExtResource("2_browser_mgr")
+
+[node name="VirtualBrowser3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, 0)
+script = ExtResource("1_browser3d")
+browser_width = 1920
+browser_height = 1080
+scale_factor = 0.008
+
+[node name="BrowserInputManager" type="Node" parent="."]
+script = ExtResource("3_browser_input")
+
+[node name="DemoController" type="Node" parent="."]
+script = """
+extends Node
+
+## DemoController.gd
+## 控制虚拟浏览器演示场景
+
+@onready var browser_manager: Node = $"../BrowserManager"
+@onready var websocket_client: Node = $"../WebSocketClient"
+
+func _ready() -> void:
+    print("🐧 Virtual Browser Demo Started")
+    print("📖 Instructions:")
+    print("  - Move mouse over browser to interact")
+    print("  - Click and drag on browser surface")
+    print("  - Press F1 to toggle browser mode")
+    print("  - Press F2 to navigate to AGUI")
+    print("  - Press ESC to quit demo")
+
+    # 连接信号
+    if browser_manager:
+        browser_manager.browser_ready.connect(_on_browser_ready)
+        browser_manager.browser_mode_changed.connect(_on_browser_mode_changed)
+        browser_manager.browser_interaction_detected.connect(_on_browser_interaction)
+
+    # 启动浏览器系统
+    if browser_manager and browser_manager.has_method("start_browser_system"):
+        browser_manager.start_browser_system()
+
+func _input(event: InputEvent) -> void:
+    if event is InputEventKey and event.pressed:
+        match event.keycode:
+            KEY_F1:
+                _toggle_browser_mode()
+            KEY_F2:
+                _navigate_to_agui()
+            KEY_F3:
+                _test_browser_commands()
+            KEY_ESCAPE:
+                _quit_demo()
+
+func _on_browser_ready() -> void:
+    print("🎉 Browser system ready!")
+    _navigate_to_agui()
+
+func _on_browser_mode_changed(mode: int) -> void:
+    var mode_names = ["Hidden", "3D Window", "2D Overlay", "Fullscreen"]
+    print("🔄 Browser mode changed to: ", mode_names[mode])
+
+func _on_browser_interaction(event_type: String, data: Dictionary) -> void:
+    print("🖱️ Browser interaction: ", event_type, " - ", data)
+
+func _toggle_browser_mode() -> void:
+    if browser_manager:
+        var current_mode = browser_manager.current_mode
+        var next_mode = (current_mode + 1) % 4
+        browser_manager.set_browser_mode(next_mode)
+
+func _navigate_to_agui() -> void:
+    if browser_manager:
+        browser_manager.navigate_to_url("http://localhost:3000")
+
+func _test_browser_commands() -> void:
+    if browser_manager:
+        # 测试一些浏览器命令
+        browser_manager.inject_javascript("console.log('Hello from Godot!');")
+        browser_manager.inject_javascript("document.body.style.background = 'linear-gradient(45deg, #ff6b6b, #4ecdc4)';")
+
+func _quit_demo() -> void:
+    print("👋 Quitting browser demo...")
+    if browser_manager and browser_manager.has_method("stop_browser_system"):
+        browser_manager.stop_browser_system()
+    get_tree().quit()
+"""
+
+[node name="UI" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="DemoInfo" type="Panel" parent="UI"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -300.0
+offset_bottom = 200.0
+grow_horizontal = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="UI/DemoInfo"]
+layout_mode = 1
+anchors_preset = 15
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="UI/DemoInfo/VBoxContainer"]
+layout_mode = 2
+text = "🐧 Virtual Browser Demo"
+horizontal_alignment = 1
+
+[node name="Instructions" type="Label" parent="UI/DemoInfo/VBoxContainer"]
+layout_mode = 2
+text = "F1: Toggle Mode
+F2: Open AGUI
+F3: Test Commands
+ESC: Quit"
+horizontal_alignment = 1
+
+[node name="Status" type="Label" parent="UI/DemoInfo/VBoxContainer"]
+layout_mode = 2
+text = "Status: Initializing..."
+horizontal_alignment = 1
+
+[node name="ConnectionIndicator" type="ColorRect" parent="UI"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -20.0
+offset_top = -20.0
+offset_right = -10.0
+offset_bottom = -10.0
+color = Color(1, 0, 0, 1)  # 红色表示未连接

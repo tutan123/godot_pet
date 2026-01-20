@@ -1,0 +1,34 @@
+{
+  "name": "godot-pet-agui-server",
+  "version": "1.0.0",
+  "description": "AGUI Server for Godot 3D Pet Project - WebSocket communication bridge between Godot and browser interface",
+  "main": "scripts/agui_server.js",
+  "scripts": {
+    "start": "node scripts/agui_server.js",
+    "dev": "nodemon scripts/agui_server.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "keywords": [
+    "godot",
+    "websocket",
+    "agui",
+    "3d-pet",
+    "browser-integration"
+  ],
+  "author": "Godot Pet Project Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/godot-pet.git"
+  }
+}
