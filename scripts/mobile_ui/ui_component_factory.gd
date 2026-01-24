@@ -113,8 +113,10 @@ func create_container(parent: Control, config: Dictionary):
     match container_type:
         "vbox":
             container = VBoxContainer.new()
+            container.add_theme_constant_override("separation", 15) # 添加间距
         "hbox":
             container = HBoxContainer.new()
+            container.add_theme_constant_override("separation", 10)
         "grid":
             container = GridContainer.new()
             if config.has("columns"):
@@ -126,6 +128,7 @@ func create_container(parent: Control, config: Dictionary):
 
     container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT) # 关键：确保容器撑满
 
     parent.add_child(container)
 

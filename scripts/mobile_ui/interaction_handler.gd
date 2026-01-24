@@ -254,21 +254,36 @@ func _get_panel_at_position(screen_pos: Vector2) -> String:
 
 # 通用输入事件处理
 func process_input_event(panel_id: String, event: InputEvent, position: Vector3):
+	var ui_renderer = get_parent().get_node_or_null("UIRenderer3D")
+	if not ui_renderer: return
+
+	# 1. 坐标转换：将 3D 点击位置转换为 2D 面板像素位置
+	var sprite = ui_renderer.sprites.get(panel_id)
+	if not sprite: return
+	
+	var local_pos = ui_renderer._calculate_local_position(position, sprite, ui_renderer.panel_configs.get(panel_id, {}))
+	
+	# 2. 模拟事件：创建一个新的输入事件并转发给 SubViewport
+	var viewport = ui_renderer.viewports.get(panel_id)
+	if viewport:
+		var cloned_event = event.duplicate()
+		if cloned_event is InputEventMouse:
+			cloned_event.position = local_pos
+			# 如果是点击事件，同时也转发 global_position (Viewport 内部需要)
+			if cloned_event is InputEventMouseButton or cloned_event is InputEventMouseMotion:
+				cloned_event.global_position = local_pos
+		
+		# 关键：将事件推送到对应的 SubViewport 内部
+		viewport.push_input(cloned_event)
+		# print("[InteractionHandler] Forwarded ", event.get_class(), " to viewport ", panel_id, " at ", local_pos)
+
+	# 保持原有信号发送
 	var event_data = {
 		"event_type": event.get_class(),
 		"world_position": position,
+		"local_position": local_pos,
 		"timestamp": Time.get_time_dict_from_system()
 	}
-
-	# 根据事件类型添加额外数据
-	if event is InputEventMouseButton:
-		event_data["button_index"] = event.button_index
-		event_data["pressed"] = event.pressed
-		event_data["double_click"] = event.double_click
-	elif event is InputEventMouseMotion:
-		event_data["relative"] = event.relative
-		event_data["velocity"] = event.velocity
-
 	interaction_detected.emit(panel_id, "input_event", event_data)
 
 # 射线检测

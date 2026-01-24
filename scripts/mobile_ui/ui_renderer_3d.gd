@@ -52,13 +52,48 @@ func create_panel(panel_id: String, config: Dictionary) -> Sprite3D:
 	ui_root.size = panel_size
 	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	
-	# 强制一个默认深色背景，并确保它撑满
-	var bg = ColorRect.new()
-	bg.name = "Background"
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT) # 撑满全屏
-	bg.color = Color(config.get("background_color", "#1e293b"))
-	ui_root.add_child(bg)
-	print("[UIRenderer3D] Added background color: ", bg.color)
+	# 手机外壳样式 (深色边框)
+	var shell = PanelContainer.new()
+	shell.name = "PhoneShell"
+	shell.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color("#0f172a") # 深蓝色外壳
+	style.corner_radius_top_left = 40
+	style.corner_radius_top_right = 40
+	style.corner_radius_bottom_left = 40
+	style.corner_radius_bottom_right = 40
+	style.border_width_left = 10
+	style.border_width_top = 10
+	style.border_width_right = 10
+	style.border_width_bottom = 10
+	style.border_color = Color("#334155") # 浅灰色边框
+	shell.add_theme_stylebox_override("panel", style)
+	ui_root.add_child(shell)
+
+	# 内部内容容器 (留出边框位置)
+	var content_margin = MarginContainer.new()
+	content_margin.name = "ContentMargin"
+	content_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content_margin.add_theme_constant_override("margin_left", 15)
+	content_margin.add_theme_constant_override("margin_top", 30) # 刘海位置
+	content_margin.add_theme_constant_override("margin_right", 15)
+	content_margin.add_theme_constant_override("margin_bottom", 15)
+	shell.add_child(content_margin)
+
+	# 真正的 UI 内容根节点
+	var actual_root = Control.new()
+	actual_root.name = "ActualRoot"
+	content_margin.add_child(actual_root)
+	ui_roots[panel_id] = actual_root # 更新引用
+
+	# 刘海屏效果
+	var notch = ColorRect.new()
+	notch.color = Color("#000000")
+	notch.custom_minimum_size = Vector2(120, 20)
+	notch.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	notch.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	shell.add_child(notch)
 	
 	viewport.add_child(ui_root)
 
